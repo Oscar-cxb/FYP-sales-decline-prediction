@@ -1,12 +1,13 @@
 """
 sellers.py - seller sales decline risk. this is the primary model.
 
-The customer pages answer "which customers look unhappy". This one
-answers the actual project question: which sellers are heading into a
+Answers the actual project question: which sellers are heading into a
 revenue decline next month.
 
-Everything here is scored on the held-out test period (2018-03
-onwards) - the model never saw these months during training.
+Everything on this page comes from rolling origin cross validation -
+the model is trained on months 1..k and tested on k+1, sliding forward
+11 times. so every number here is out-of-sample, and the +/- figures
+are the spread across folds rather than a single lucky split.
 """
 
 import sys
@@ -14,13 +15,13 @@ from pathlib import Path
 
 import dash
 from dash import html, dcc, dash_table
-import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from data_loader import (
-    load_seller_risk_table, load_seller_model_comparison,
+    load_seller_risk_table, load_seller_cv_results, load_seller_model_meta,
     load_seller_shap_groups, load_ablation_results,
 )
 from theme import (
@@ -28,36 +29,28 @@ from theme import (
     TEXT, TEXT_DIM, TEXT_FAINT, LINE, LINE_SOFT, CARD, MONO, SANS, rgba,
 )
 
-dash.register_page(__name__, path="/sellers", name="Sellers")
+dash.register_page(__name__, path="/sellers", name="Seller risk")
 
-WATCH_THRESHOLD = 0.40
-HIGH_THRESHOLD = 0.60
+# fallback only - the real threshold comes from models/seller_model_meta.pkl
+# because it was tuned on out-of-fold predictions, not picked by hand
+DEFAULT_THRESHOLD = 0.33
 
-GROUP_COLOUR = {
-    "Trading": VIOLET,
-    "RFM": CYAN,
-    "Delivery": AMBER,
-    "Sentiment": ROSE,
-}
+GROUP_COLOUR = {"Trading": VIOLET, "RFM": CYAN, "Delivery": AMBER, "Sentiment": ROSE}
 
 
-def band_of(score):
-    if score >= HIGH_THRESHOLD:
-        return "high"
-    if score >= WATCH_THRESHOLD:
-        return "mid"
-    return "low"
-
-
-BAND_COLOUR = {"low": LOW, "mid": MID, "high": HIGH}
+def get_meta():
+    try:
+        m = load_seller_model_meta()
+        return m.get("model", "Random Forest"), float(m.get("threshold", DEFAULT_THRESHOLD))
+    except Exception:
+        return "Random Forest", DEFAULT_THRESHOLD
 
 
 def base_layout(fig, height=260):
     fig.update_layout(
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         font=dict(color=TEXT_DIM, size=11, family=SANS),
-        margin=dict(l=6, r=12, t=6, b=24),
-        height=height, showlegend=False,
+        margin=dict(l=6, r=12, t=6, b=26), height=height, showlegend=False,
         hoverlabel=dict(bgcolor=CARD, bordercolor=LINE,
                         font=dict(color=TEXT, size=11.5, family=SANS)),
     )
@@ -85,15 +78,15 @@ def kpi_card(icon, colour, label, value, sub=None, fill_pct=None):
     return html.Div(children, className="kpi-card")
 
 
-def build_model_strip():
+def build_model_strip(best_name, threshold):
     try:
-        comp = load_seller_model_comparison()
-        best = comp.loc[comp["f1"].idxmax()]
+        cv = load_seller_cv_results()
+        row = cv.loc[cv["mean_auc"].idxmax()]
         stats = [
-            ("Model", str(best["model"]), False),
-            ("AUC-ROC", f"{best['auc']:.3f}", True),
-            ("F1 decline", f"{best['f1']:.3f}", False),
-            ("Validation", "temporal", False),
+            ("Model", str(row["model"]), False),
+            ("AUC-ROC", f"{row['mean_auc']:.3f} ± {row['std_auc']:.3f}", True),
+            ("CV folds", f"{int(row['n_folds'])}", False),
+            ("Threshold", f"{threshold:.2f}", False),
         ]
     except Exception:
         return html.Div()
@@ -108,30 +101,63 @@ def build_model_strip():
     ], className="model-strip")
 
 
-# ------------------------------------------------- risk over the months
+# ------------------------------------------------- model comparison
 
-def build_monthly_risk(df):
-    monthly = df.groupby("month").agg(
-        mean_risk=("risk_score", "mean"),
-        sellers=("seller_id", "nunique"),
-    ).reset_index()
-    monthly["month_str"] = monthly["month"].astype(str)
+def build_model_chart():
+    """three models with their fold-to-fold range as error bars.
 
-    fig = go.Figure(go.Scatter(
-        x=monthly["month_str"], y=monthly["mean_risk"],
-        mode="lines+markers",
-        line=dict(color=VIOLET, width=2, shape="spline", smoothing=0.5),
-        marker=dict(size=6, color=VIOLET),
-        fill="tozeroy", fillcolor=rgba(VIOLET, 0.12),
-        customdata=monthly["sellers"],
-        hovertemplate="%{x}<br>mean risk %{y:.3f}<br>%{customdata} sellers<extra></extra>",
+    the baseline matters here - if Random Forest couldnt beat Logistic
+    Regression there'd be no case for using it, so its worth showing
+    rather than quietly leaving out
+    """
+    try:
+        cv = load_seller_cv_results().sort_values("mean_auc")
+    except Exception:
+        return None
+
+    colours = [VIOLET if m == cv.iloc[-1]["model"] else rgba(TEXT_DIM, 0.5)
+               for m in cv["model"]]
+
+    fig = go.Figure(go.Bar(
+        x=cv["mean_auc"] - 0.5, y=cv["model"], orientation="h", base=0.5,
+        marker=dict(color=colours, line=dict(width=0)), width=0.5,
+        error_x=dict(type="data", array=cv["std_auc"], color=TEXT_FAINT,
+                     thickness=1, width=4),
+        text=[f"{v:.3f}" for v in cv["mean_auc"]], textposition="outside",
+        textfont=dict(size=11, color=TEXT_DIM, family=MONO),
+        hovertemplate="%{y}<br>mean AUC %{x:.3f}<extra></extra>",
     ))
-    fig = base_layout(fig, height=250)
-    fig.update_yaxes(range=[0, max(monthly["mean_risk"].max() * 1.3, 0.1)])
+    fig = base_layout(fig, height=210)
+    fig.update_xaxes(range=[0.5, cv["mean_auc"].max() * 1.12], title="AUC-ROC")
+    fig.update_yaxes(gridcolor="rgba(0,0,0,0)")
+    fig.update_layout(margin=dict(l=6, r=48, t=6, b=32))
     return fig
 
 
-# ------------------------------------------ what drives it (SHAP groups)
+# --------------------------------------------- risk distribution
+
+def build_risk_hist(df, threshold):
+    """where the scored sellers actually sit on the risk scale.
+
+    a mean risk score on its own hides the shape - this shows whether
+    the model is confident or hedging everything near the middle
+    """
+    fig = go.Figure(go.Histogram(
+        x=df["risk_score"], nbinsx=26,
+        marker=dict(color=rgba(VIOLET, 0.55), line=dict(color=VIOLET, width=1)),
+        hovertemplate="risk %{x:.2f}<br>%{y} sellers<extra></extra>",
+    ))
+    fig.add_vline(x=threshold, line_width=1.5, line_dash="dash", line_color=ROSE,
+                  annotation_text=f"threshold {threshold:.2f}",
+                  annotation_position="top right",
+                  annotation_font=dict(color=ROSE, size=10.5, family=SANS))
+    fig = base_layout(fig, height=210)
+    fig.update_xaxes(title="Predicted risk", range=[0, 1])
+    fig.update_yaxes(title=None)
+    return fig
+
+
+# ----------------------------------------------------- SHAP groups
 
 def build_group_chart():
     try:
@@ -142,83 +168,82 @@ def build_group_chart():
     fig = go.Figure(go.Bar(
         x=g["share_pct"], y=g["group"], orientation="h",
         marker=dict(color=[GROUP_COLOUR.get(n, VIOLET) for n in g["group"]],
-                    line=dict(width=0)),
-        width=0.55,
-        text=[f"{v:.1f}%" for v in g["share_pct"]],
-        textposition="outside",
+                    line=dict(width=0)), width=0.55,
+        customdata=g["n_features"],
+        text=[f"{v:.1f}%" for v in g["share_pct"]], textposition="outside",
         textfont=dict(size=11, color=TEXT_DIM, family=MONO),
-        hovertemplate="%{y}<br>%{x:.1f}% of total SHAP<extra></extra>",
+        hovertemplate="%{y}<br>%{x:.1f}% of total SHAP<br>%{customdata} features<extra></extra>",
     ))
     fig = base_layout(fig, height=230)
     fig.update_xaxes(range=[0, g["share_pct"].max() * 1.25], title=None)
     fig.update_yaxes(gridcolor="rgba(0,0,0,0)")
-    fig.update_layout(margin=dict(l=6, r=40, t=6, b=24))
+    fig.update_layout(margin=dict(l=6, r=44, t=6, b=24))
     return fig
 
 
-# ------------------------------------------------ ablation (objective 3)
+# ------------------------------------------ ablation (objective 3)
 
 def build_ablation_chart():
     try:
-        a = load_ablation_results().sort_values("auc")
+        a = load_ablation_results().sort_values("mean_auc")
     except Exception:
         return None
 
-    # 0.5 is random guessing, so the bars are drawn from there rather than
-    # from zero - otherwise everything looks impressively tall for no reason
+    # bars start at 0.5 because thats random guessing - drawing from zero
+    # would make everything look impressively tall for no reason
+    colours = []
+    for s in a["feature_set"]:
+        if "All" in s:
+            colours.append(VIOLET)
+        elif s == "RFM + Sentiment":
+            colours.append(CYAN)
+        else:
+            colours.append(rgba(TEXT_DIM, 0.5))
+
     fig = go.Figure(go.Bar(
-        x=a["auc"] - 0.5, y=a["feature_set"], orientation="h",
-        base=0.5,
-        marker=dict(
-            color=[VIOLET if "All" in s else
-                   CYAN if "RFM + Sentiment" in s else
-                   rgba(TEXT_DIM, 0.55) for s in a["feature_set"]],
-            line=dict(width=0)),
-        width=0.6,
-        text=[f"{v:.3f}" for v in a["auc"]],
-        textposition="outside",
+        x=a["mean_auc"] - 0.5, y=a["feature_set"], orientation="h", base=0.5,
+        marker=dict(color=colours, line=dict(width=0)), width=0.6,
+        error_x=dict(type="data", array=a["std_auc"], color=TEXT_FAINT,
+                     thickness=1, width=3),
+        customdata=a["n_features"],
+        text=[f"{v:.3f}" for v in a["mean_auc"]], textposition="outside",
         textfont=dict(size=10.5, color=TEXT_DIM, family=MONO),
-        hovertemplate="%{y}<br>AUC %{x:.3f}<extra></extra>",
+        hovertemplate="%{y}<br>AUC %{x:.3f}<br>%{customdata} features<extra></extra>",
     ))
-    fig = base_layout(fig, height=280)
-    fig.update_xaxes(range=[0.5, a["auc"].max() * 1.08], title="AUC-ROC")
+    fig = base_layout(fig, height=290)
+    fig.update_xaxes(range=[0.5, a["mean_auc"].max() * 1.10], title="AUC-ROC")
     fig.update_yaxes(gridcolor="rgba(0,0,0,0)")
-    fig.update_layout(margin=dict(l=6, r=46, t=6, b=32))
+    fig.update_layout(margin=dict(l=6, r=50, t=6, b=32))
     return fig
 
 
-# ----------------------------------------------------------- the table
+# ----------------------------------------------------------- table
 
-def build_table(df):
-    # most recent scored month per seller, biggest sellers first - a seller
-    # doing R$20k that the model flags matters more than one doing R$200
-    latest = df.sort_values("month").groupby("seller_id").tail(1)
-    flagged = latest[latest["risk_score"] >= WATCH_THRESHOLD]
+def build_table(df, threshold):
+    flagged = df[df["risk_score"] >= threshold]
     top = flagged.nlargest(10, "revenue").copy()
 
-    top["risk_band"] = top["risk_score"].map(band_of)
     top["month"] = top["month"].astype(str)
     top["revenue"] = top["revenue"].map(lambda v: f"{v:,.0f}")
     top["avg_review_score"] = top["avg_review_score"].map(lambda v: f"{v:.2f}")
     top["pct_late_deliveries"] = top["pct_late_deliveries"].map(lambda v: f"{v*100:.0f}%")
-    top["revenue_change_prev"] = top["revenue_change_prev"].map(lambda v: f"{v*100:+.0f}%")
+    top["d_revenue"] = top["d_revenue"].map(lambda v: f"{v:+,.0f}")
     top["risk_score"] = top["risk_score"].map(lambda v: f"{v:.3f}")
     top["seller_id"] = top["seller_id"].str[:12]
 
     cols = [
-        ("seller_id", "Seller"), ("month", "Month"),
-        ("revenue", "Revenue (R$)"), ("orders", "Orders"),
-        ("revenue_change_prev", "MoM"), ("avg_review_score", "Reviews"),
-        ("pct_late_deliveries", "Late"), ("risk_score", "Risk"),
+        ("seller_id", "Seller"), ("revenue", "Revenue (R$)"),
+        ("d_revenue", "Δ vs last month"), ("orders", "Orders"),
+        ("avg_review_score", "Reviews"), ("pct_late_deliveries", "Late"),
+        ("risk_score", "Risk"),
     ]
-    numeric = ["revenue", "orders", "revenue_change_prev",
-               "avg_review_score", "pct_late_deliveries", "risk_score"]
+    numeric = ["revenue", "d_revenue", "orders", "avg_review_score",
+               "pct_late_deliveries", "risk_score"]
 
     return dash_table.DataTable(
-        data=top[[c for c, _ in cols] + ["risk_band"]].to_dict("records"),
+        data=top[[c for c, _ in cols]].to_dict("records"),
         columns=[{"name": lbl, "id": cid} for cid, lbl in cols],
-        sort_action="native",
-        style_as_list_view=True,
+        sort_action="native", style_as_list_view=True,
         style_header={
             "backgroundColor": "rgba(0,0,0,0)", "color": TEXT_FAINT,
             "fontWeight": "500", "fontSize": "11px", "border": "none",
@@ -236,79 +261,86 @@ def build_table(df):
         style_data_conditional=[
             {"if": {"column_id": "seller_id"},
              "fontFamily": MONO, "color": TEXT_DIM, "fontSize": "11.5px"},
-            {"if": {"column_id": "month"}, "color": TEXT_DIM},
             {"if": {"column_id": numeric}, "fontFamily": MONO, "fontSize": "12px"},
-            {"if": {"filter_query": "{risk_band} = high", "column_id": "risk_score"},
-             "color": HIGH, "fontWeight": "600"},
-            {"if": {"filter_query": "{risk_band} = mid", "column_id": "risk_score"},
-             "color": MID},
-            {"if": {"filter_query": "{risk_band} = low", "column_id": "risk_score"},
-             "color": LOW},
+            {"if": {"column_id": "risk_score"}, "color": HIGH, "fontWeight": "600"},
         ],
     )
 
 
-# ------------------------------------------------------------- layout
+# ---------------------------------------------------------- layout
 
 def layout():
     try:
         df = load_seller_risk_table()
     except FileNotFoundError:
         return html.Div([
-            html.H1("Sellers"),
-            html.P("Run src/seller_features.py then src/seller_classifier.py "
-                   "to generate the seller risk table.", className="page-sub"),
+            html.H1("Seller risk"),
+            html.P("Run src/seller_features.py then src/seller_model.py to "
+                   "generate the seller risk table.", className="page-sub"),
         ])
 
-    latest = df.sort_values("month").groupby("seller_id").tail(1)
-    n_sellers = latest["seller_id"].nunique()
-    high = int((latest["risk_score"] >= HIGH_THRESHOLD).sum())
-    watch = int(((latest["risk_score"] >= WATCH_THRESHOLD)
-                 & (latest["risk_score"] < HIGH_THRESHOLD)).sum())
-    mean_risk = latest["risk_score"].mean()
-    rev_at_risk = latest.loc[latest["risk_score"] >= WATCH_THRESHOLD, "revenue"].sum()
-    total_rev = latest["revenue"].sum()
+    best_name, threshold = get_meta()
 
-    months = f"{df['month'].min()} – {df['month'].max()}"
+    n = len(df)
+    flagged = int((df["risk_score"] >= threshold).sum())
+    mean_risk = df["risk_score"].mean()
+    rev_flagged = df.loc[df["risk_score"] >= threshold, "revenue"].sum()
+    total_rev = df["revenue"].sum()
+    month = str(df["month"].iloc[0]) if n else "n/a"
 
     blocks = [
         html.Div([
             html.Div([
                 html.H1("Seller decline risk"),
                 html.P(
-                    f"Probability that a seller's revenue falls more than 20% next "
-                    f"month. Scored on held-out months ({months}) the model never "
-                    f"trained on.",
+                    f"Probability that a seller's revenue falls more than 20% the "
+                    f"following month. Validated by rolling-origin cross-validation, "
+                    f"so every score is out-of-sample. Table below shows {month}.",
                     className="page-sub"),
             ], className="page-head-text"),
-            build_model_strip(),
+            build_model_strip(best_name, threshold),
         ], className="page-head"),
 
         html.Div([
-            kpi_card("\u25c8", VIOLET, "Sellers scored", f"{n_sellers:,}",
-                     "in the latest scored month"),
-            kpi_card("\u25b2", ROSE, "High risk", f"{high:,}",
-                     f"{high / n_sellers * 100:.1f}% of sellers",
-                     high / n_sellers * 100),
-            kpi_card("\u25d0", AMBER, "Watch", f"{watch:,}",
-                     "risk between 0.40 and 0.60",
-                     watch / n_sellers * 100),
-            kpi_card("\u25ae", EMERALD, "Revenue at risk", f"R$ {rev_at_risk:,.0f}",
-                     f"{rev_at_risk / total_rev * 100:.1f}% of monthly revenue",
-                     rev_at_risk / total_rev * 100),
+            kpi_card("\u25c8", VIOLET, "Sellers scored", f"{n:,}", f"in {month}"),
+            kpi_card("\u25b2", ROSE, "Flagged", f"{flagged:,}",
+                     f"{flagged / n * 100:.0f}% at threshold {threshold:.2f}",
+                     flagged / n * 100),
+            kpi_card("\u25d0", AMBER, "Mean risk", f"{mean_risk:.3f}",
+                     "0 = stable, 1 = certain decline", mean_risk * 100),
+            kpi_card("\u25ae", EMERALD, "Revenue flagged", f"R$ {rev_flagged:,.0f}",
+                     f"{rev_flagged / total_rev * 100:.0f}% of the month's revenue",
+                     rev_flagged / total_rev * 100),
         ], className="kpi-row"),
-
-        html.Div([
-            html.P("Mean risk by month", className="card-title"),
-            html.P("Across all sellers scored in each held-out month",
-                   className="card-sub"),
-            dcc.Graph(figure=build_monthly_risk(df), config={"displayModeBar": False}),
-        ], className="card"),
     ]
+
+    model_fig = build_model_chart()
+    if model_fig is not None:
+        blocks.append(html.Div([
+            html.Div([
+                html.P("Model comparison", className="card-title"),
+                html.P("Mean AUC across CV folds, bars show standard deviation",
+                       className="card-sub"),
+                dcc.Graph(figure=model_fig, config={"displayModeBar": False}),
+                html.P("Logistic Regression is included as a baseline — the tree "
+                       "models have to beat it to be worth using.",
+                       className="chart-note"),
+            ], className="card"),
+
+            html.Div([
+                html.P("Risk score distribution", className="card-title"),
+                html.P(f"All sellers scored in {month}", className="card-sub"),
+                dcc.Graph(figure=build_risk_hist(df, threshold),
+                          config={"displayModeBar": False}),
+                html.P(f"Threshold {threshold:.2f} was tuned on out-of-fold "
+                       f"predictions, not left at the 0.50 default — missing a "
+                       f"declining seller costs more than a false alarm.",
+                       className="chart-note"),
+            ], className="card"),
+        ], className="duo-row"))
 
     group_fig = build_group_chart()
     abl_fig = build_ablation_chart()
-
     if group_fig is not None and abl_fig is not None:
         blocks.append(html.Div([
             html.Div([
@@ -316,30 +348,29 @@ def layout():
                 html.P("Share of total SHAP importance by feature group",
                        className="card-sub"),
                 dcc.Graph(figure=group_fig, config={"displayModeBar": False}),
-                html.P(
-                    "Trading momentum dominates — a seller's own revenue trend "
-                    "carries most of the signal.",
-                    className="chart-note"),
+                html.P("Trading momentum leads, but every group here gets the same "
+                       "treatment — level, month-on-month change, rolling average "
+                       "and trend — so the comparison is like-for-like.",
+                       className="chart-note"),
             ], className="card"),
 
             html.Div([
                 html.P("Feature groups tested separately", className="card-title"),
-                html.P("Same model and split, trained on each subset",
+                html.P("Same model and folds, retrained on each subset",
                        className="card-sub"),
                 dcc.Graph(figure=abl_fig, config={"displayModeBar": False}),
-                html.P(
-                    "RFM and sentiment together beat either on its own, so they "
-                    "carry complementary signal — but they add little once revenue "
-                    "momentum is already known.",
-                    className="chart-note"),
+                html.P("RFM and sentiment together beat either alone, so they carry "
+                       "complementary signal — though they add little once revenue "
+                       "momentum is already known.",
+                       className="chart-note"),
             ], className="card"),
         ], className="duo-row"))
 
     blocks.append(html.Div([
-        html.P("Largest sellers currently flagged", className="card-title"),
-        html.P("Most recent scored month per seller, ranked by revenue",
-               className="card-sub"),
-        build_table(df),
+        html.P("Largest flagged sellers", className="card-title"),
+        html.P("Highest revenue among sellers above the threshold — intervening "
+               "here protects the most revenue", className="card-sub"),
+        build_table(df, threshold),
     ], className="card"))
 
     return html.Div(blocks)

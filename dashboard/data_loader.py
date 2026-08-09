@@ -69,8 +69,19 @@ def load_seller_panel():
     return df
 
 
-def load_seller_model_comparison():
-    return pd.read_csv(REPORTS_DIR / "seller_model_comparison.csv")
+def load_seller_cv_results():
+    # written by seller_model.py - one row per model with mean/std AUC
+    # across the rolling origin folds
+    return pd.read_csv(REPORTS_DIR / "seller_cv_results.csv")
+
+
+def load_seller_model_meta():
+    # which model won and the tuned decision threshold
+    return joblib.load(MODELS_DIR / "seller_model_meta.pkl")
+
+
+def load_threshold_curve():
+    return pd.read_csv(REPORTS_DIR / "threshold_curve.csv")
 
 
 def load_seller_shap_importance():
