@@ -1,0 +1,29 @@
+feature,mean_abs_shap
+category_other,1.0596082
+avg_delivery_delay,0.85430986
+payment_boleto,0.6473458
+payment_credit_card,0.54954344
+avg_payment_value,0.4698787
+category_cama_mesa_banho,0.45345333
+avg_installments,0.42789078
+monetary,0.38859
+category_informatica_acessorios,0.3261365
+segment_Delayed Delivery,0.32589802
+category_moveis_decoracao,0.32527488
+category_beleza_saude,0.29453087
+category_esporte_lazer,0.2938866
+category_relogios_presentes,0.21161082
+segment_Promising,0.2026555
+category_telefonia,0.1961797
+category_utilidades_domesticas,0.18199116
+recency,0.16895807
+segment_At Risk,0.16468653
+category_brinquedos,0.1437512
+category_ferramentas_jardim,0.13736509
+frequency,0.10940468
+payment_voucher,0.07272193
+segment_Needs Attention,0.048331875
+segment_Hibernating,0.03331553
+segment_Champions,0.025432747
+payment_debit_card,0.018425234
+payment_unknown,0.0
