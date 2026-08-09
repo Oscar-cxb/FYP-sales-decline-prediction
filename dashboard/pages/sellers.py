@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from data_loader import (
     load_seller_risk_table, load_seller_cv_results, load_seller_model_meta,
-    load_seller_shap_groups, load_ablation_results,
+    load_seller_shap_groups, load_ablation_results, load_capacity_curve,
 )
 from theme import (
     LOW, MID, HIGH, VIOLET, CYAN, AMBER, ROSE, EMERALD,
@@ -31,9 +31,14 @@ from theme import (
 
 dash.register_page(__name__, path="/sellers", name="Seller risk")
 
-# fallback only - the real threshold comes from models/seller_model_meta.pkl
-# because it was tuned on out-of-fold predictions, not picked by hand
-DEFAULT_THRESHOLD = 0.33
+# WHY A WORKLIST INSTEAD OF A FLAG
+# tuning the threshold for F1 landed on 0.33, which flagged 75% of sellers
+# and 95% of the month's revenue. best F1, but useless to act on - you cant
+# hand someone a list of three quarters of the marketplace and call it an
+# early warning. so the page ranks sellers by risk and takes the top N
+# instead, which is how these systems get used in practice: work down the
+# list until you run out of capacity.
+DEFAULT_CAPACITY = 50
 
 GROUP_COLOUR = {"Trading": VIOLET, "RFM": CYAN, "Delivery": AMBER, "Sentiment": ROSE}
 
@@ -41,9 +46,11 @@ GROUP_COLOUR = {"Trading": VIOLET, "RFM": CYAN, "Delivery": AMBER, "Sentiment": 
 def get_meta():
     try:
         m = load_seller_model_meta()
-        return m.get("model", "Random Forest"), float(m.get("threshold", DEFAULT_THRESHOLD))
+        return (m.get("model", "Random Forest"),
+                int(m.get("capacity", DEFAULT_CAPACITY)),
+                float(m.get("base_rate", 0.37)))
     except Exception:
-        return "Random Forest", DEFAULT_THRESHOLD
+        return "Random Forest", DEFAULT_CAPACITY, 0.37
 
 
 def base_layout(fig, height=260):
@@ -78,7 +85,7 @@ def kpi_card(icon, colour, label, value, sub=None, fill_pct=None):
     return html.Div(children, className="kpi-card")
 
 
-def build_model_strip(best_name, threshold):
+def build_model_strip(best_name, capacity):
     try:
         cv = load_seller_cv_results()
         row = cv.loc[cv["mean_auc"].idxmax()]
@@ -86,7 +93,7 @@ def build_model_strip(best_name, threshold):
             ("Model", str(row["model"]), False),
             ("AUC-ROC", f"{row['mean_auc']:.3f} ± {row['std_auc']:.3f}", True),
             ("CV folds", f"{int(row['n_folds'])}", False),
-            ("Threshold", f"{threshold:.2f}", False),
+            ("Worklist", f"top {capacity}", False),
         ]
     except Exception:
         return html.Div()
@@ -134,26 +141,42 @@ def build_model_chart():
     return fig
 
 
-# --------------------------------------------- risk distribution
+# ------------------------------------------------- capacity curve
 
-def build_risk_hist(df, threshold):
-    """where the scored sellers actually sit on the risk scale.
+def build_capacity_chart(base_rate):
+    """precision@N against the base rate.
 
-    a mean risk score on its own hides the shape - this shows whether
-    the model is confident or hedging everything near the middle
+    reads as: if you only chase the top N riskiest sellers each month,
+    what share of them really decline. the dashed line is what you'd get
+    picking sellers at random, so the gap is the model earning its keep.
     """
-    fig = go.Figure(go.Histogram(
-        x=df["risk_score"], nbinsx=26,
-        marker=dict(color=rgba(VIOLET, 0.55), line=dict(color=VIOLET, width=1)),
-        hovertemplate="risk %{x:.2f}<br>%{y} sellers<extra></extra>",
+    try:
+        c = load_capacity_curve()
+    except Exception:
+        return None
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=[f"Top {int(n)}" for n in c["capacity"]],
+        y=c["precision_at_n"],
+        marker=dict(color=VIOLET, line=dict(width=0)), width=0.5,
+        customdata=np.stack([c["lift_over_base"], c["recall_at_n"],
+                             c["pct_of_sellers"] * 100], axis=-1),
+        text=[f"{v:.0%}" for v in c["precision_at_n"]], textposition="outside",
+        textfont=dict(size=11, color=TEXT_DIM, family=MONO),
+        hovertemplate=("%{x}<br>precision %{y:.1%}"
+                       "<br>%{customdata[0]:.2f}x base rate"
+                       "<br>recall %{customdata[1]:.1%}"
+                       "<br>covers %{customdata[2]:.0f}% of sellers<extra></extra>"),
     ))
-    fig.add_vline(x=threshold, line_width=1.5, line_dash="dash", line_color=ROSE,
-                  annotation_text=f"threshold {threshold:.2f}",
-                  annotation_position="top right",
+    fig.add_hline(y=base_rate, line_width=1.5, line_dash="dash", line_color=ROSE,
+                  annotation_text=f"random pick: {base_rate:.0%}",
+                  annotation_position="bottom right",
                   annotation_font=dict(color=ROSE, size=10.5, family=SANS))
     fig = base_layout(fig, height=210)
-    fig.update_xaxes(title="Predicted risk", range=[0, 1])
-    fig.update_yaxes(title=None)
+    fig.update_yaxes(title="Precision", range=[0, min(1.0, c["precision_at_n"].max() * 1.3)],
+                     tickformat=".0%")
+    fig.update_xaxes(title=None)
     return fig
 
 
@@ -219,9 +242,11 @@ def build_ablation_chart():
 
 # ----------------------------------------------------------- table
 
-def build_table(df, threshold):
-    flagged = df[df["risk_score"] >= threshold]
-    top = flagged.nlargest(10, "revenue").copy()
+def build_table(df, capacity):
+    # the worklist itself - top N by risk, in rank order. NOT sorted by
+    # revenue, because the point is "work down this list", and re-sorting
+    # by size would bury the riskiest sellers
+    top = df.nsmallest(min(capacity, len(df)), "risk_rank").head(12).copy()
 
     top["month"] = top["month"].astype(str)
     top["revenue"] = top["revenue"].map(lambda v: f"{v:,.0f}")
@@ -232,12 +257,12 @@ def build_table(df, threshold):
     top["seller_id"] = top["seller_id"].str[:12]
 
     cols = [
-        ("seller_id", "Seller"), ("revenue", "Revenue (R$)"),
+        ("risk_rank", "#"), ("seller_id", "Seller"), ("revenue", "Revenue (R$)"),
         ("d_revenue", "Δ vs last month"), ("orders", "Orders"),
         ("avg_review_score", "Reviews"), ("pct_late_deliveries", "Late"),
         ("risk_score", "Risk"),
     ]
-    numeric = ["revenue", "d_revenue", "orders", "avg_review_score",
+    numeric = ["risk_rank", "revenue", "d_revenue", "orders", "avg_review_score",
                "pct_late_deliveries", "risk_score"]
 
     return dash_table.DataTable(
@@ -279,65 +304,96 @@ def layout():
                    "generate the seller risk table.", className="page-sub"),
         ])
 
-    best_name, threshold = get_meta()
+    # risk_rank is written by seller_model.py, but an older risk table wont
+    # have it. deriving it here rather than blowing up - its just the risk
+    # score in descending order anyway
+    if "risk_rank" not in df.columns:
+        df = df.copy()
+        df["risk_rank"] = df["risk_score"].rank(ascending=False, method="first").astype(int)
+
+    best_name, capacity, base_rate = get_meta()
 
     n = len(df)
-    flagged = int((df["risk_score"] >= threshold).sum())
+    capacity = min(capacity, n)
+    worklist = df.nsmallest(capacity, "risk_rank")
+
     mean_risk = df["risk_score"].mean()
-    rev_flagged = df.loc[df["risk_score"] >= threshold, "revenue"].sum()
+    rev_worklist = worklist["revenue"].sum()
     total_rev = df["revenue"].sum()
     month = str(df["month"].iloc[0]) if n else "n/a"
+
+    # precision@capacity measured in cross validation, not on this month -
+    # this month's outcome isnt known yet, thats the whole point
+    try:
+        cap = load_capacity_curve()
+        row = cap.iloc[(cap["capacity"] - capacity).abs().argmin()]
+        prec_txt = f"{row['precision_at_n']:.0%}"
+        prec_sub = f"{row['lift_over_base']:.2f}x the {base_rate:.0%} base rate"
+    except Exception:
+        prec_txt, prec_sub = "n/a", "run seller_model.py"
 
     blocks = [
         html.Div([
             html.Div([
                 html.H1("Seller decline risk"),
                 html.P(
-                    f"Probability that a seller's revenue falls more than 20% the "
-                    f"following month. Validated by rolling-origin cross-validation, "
-                    f"so every score is out-of-sample. Table below shows {month}.",
+                    f"Sellers ranked by the probability their revenue falls more "
+                    f"than 20% next month. Validated by rolling-origin "
+                    f"cross-validation, so every score is out-of-sample. "
+                    f"Showing {month}.",
                     className="page-sub"),
             ], className="page-head-text"),
-            build_model_strip(best_name, threshold),
+            build_model_strip(best_name, capacity),
         ], className="page-head"),
 
         html.Div([
             kpi_card("\u25c8", VIOLET, "Sellers scored", f"{n:,}", f"in {month}"),
-            kpi_card("\u25b2", ROSE, "Flagged", f"{flagged:,}",
-                     f"{flagged / n * 100:.0f}% at threshold {threshold:.2f}",
-                     flagged / n * 100),
-            kpi_card("\u25d0", AMBER, "Mean risk", f"{mean_risk:.3f}",
-                     "0 = stable, 1 = certain decline", mean_risk * 100),
-            kpi_card("\u25ae", EMERALD, "Revenue flagged", f"R$ {rev_flagged:,.0f}",
-                     f"{rev_flagged / total_rev * 100:.0f}% of the month's revenue",
-                     rev_flagged / total_rev * 100),
+            kpi_card("\u25b2", ROSE, "Worklist", f"top {capacity}",
+                     f"{capacity / n * 100:.0f}% of sellers this month",
+                     capacity / n * 100),
+            kpi_card("\u25d0", AMBER, f"Precision @{capacity}", prec_txt, prec_sub),
+            kpi_card("\u25ae", EMERALD, "Revenue in worklist", f"R$ {rev_worklist:,.0f}",
+                     f"{rev_worklist / total_rev * 100:.0f}% of the month's revenue",
+                     rev_worklist / total_rev * 100),
         ], className="kpi-row"),
     ]
 
+    # each card is only built if its data actually exists. previously i had
+    # `figure=build_capacity_chart(...) or go.Figure()` here, and when the csv
+    # was missing that fell through to an EMPTY plotly figure - which renders
+    # as a big white box on a dark page. an absent card is fine, a broken
+    # looking one isnt
+    perf_cards = []
+
     model_fig = build_model_chart()
     if model_fig is not None:
-        blocks.append(html.Div([
-            html.Div([
-                html.P("Model comparison", className="card-title"),
-                html.P("Mean AUC across CV folds, bars show standard deviation",
-                       className="card-sub"),
-                dcc.Graph(figure=model_fig, config={"displayModeBar": False}),
-                html.P("Logistic Regression is included as a baseline — the tree "
-                       "models have to beat it to be worth using.",
-                       className="chart-note"),
-            ], className="card"),
+        perf_cards.append(html.Div([
+            html.P("Model comparison", className="card-title"),
+            html.P("Mean AUC across CV folds, bars show standard deviation",
+                   className="card-sub"),
+            dcc.Graph(figure=model_fig, config={"displayModeBar": False}),
+            html.P("Logistic Regression is included as a baseline — the tree "
+                   "models have to beat it to be worth using.",
+                   className="chart-note"),
+        ], className="card"))
 
-            html.Div([
-                html.P("Risk score distribution", className="card-title"),
-                html.P(f"All sellers scored in {month}", className="card-sub"),
-                dcc.Graph(figure=build_risk_hist(df, threshold),
-                          config={"displayModeBar": False}),
-                html.P(f"Threshold {threshold:.2f} was tuned on out-of-fold "
-                       f"predictions, not left at the 0.50 default — missing a "
-                       f"declining seller costs more than a false alarm.",
-                       className="chart-note"),
-            ], className="card"),
-        ], className="duo-row"))
+    cap_fig = build_capacity_chart(base_rate)
+    if cap_fig is not None:
+        perf_cards.append(html.Div([
+            html.P("How far down the list is worth going", className="card-title"),
+            html.P("Share of the top N that really declined, measured in CV",
+                   className="card-sub"),
+            dcc.Graph(figure=cap_fig, config={"displayModeBar": False}),
+            html.P("A fixed threshold tuned for F1 flagged 75% of sellers, which "
+                   "is not something a team can act on. Ranking and working down "
+                   "to a set capacity is both more useful and easier to justify.",
+                   className="chart-note"),
+        ], className="card"))
+
+    if len(perf_cards) == 2:
+        blocks.append(html.Div(perf_cards, className="duo-row"))
+    elif perf_cards:
+        blocks.append(perf_cards[0])
 
     group_fig = build_group_chart()
     abl_fig = build_ablation_chart()
@@ -367,10 +423,10 @@ def layout():
         ], className="duo-row"))
 
     blocks.append(html.Div([
-        html.P("Largest flagged sellers", className="card-title"),
-        html.P("Highest revenue among sellers above the threshold — intervening "
-               "here protects the most revenue", className="card-sub"),
-        build_table(df, threshold),
+        html.P(f"Worklist — top {capacity} by risk", className="card-title"),
+        html.P("In rank order, highest risk first. Showing the first 12.",
+               className="card-sub"),
+        build_table(df, capacity),
     ], className="card"))
 
     return html.Div(blocks)

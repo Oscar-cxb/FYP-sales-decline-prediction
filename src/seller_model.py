@@ -157,6 +157,61 @@ def cross_validate(df, feats, models):
     return pd.DataFrame(rows), pd.concat(oof, ignore_index=True)
 
 
+def capacity_analysis(oof, model_name, capacities=(10, 25, 50, 100)):
+    """precision@N - if an account team can only chase N sellers a month,
+    how many of those N actually decline?
+
+    WHY THIS INSTEAD OF A THRESHOLD
+    tuning the threshold for F1 gave 0.33, which flagged 75% of sellers and
+    95% of revenue. technically the best F1, operationally meaningless - you
+    cant tell a marketplace that three quarters of its sellers are at risk
+    and call that an early warning system.
+
+    ranking is what these systems actually do in practice: sort by risk,
+    work down the list until you run out of capacity. and precision@N is
+    honest in a way F1 isnt here, because it answers a question someone
+    would really ask.
+
+    computed per month then averaged, because a team works a month at a
+    time - not across the whole test period at once.
+    """
+    d = oof[oof["model"] == model_name]
+    base_rate = d["y"].mean()
+
+    rows = []
+    for n in capacities:
+        precs, recs, covered = [], [], []
+        for month, grp in d.groupby("month"):
+            if len(grp) < n:
+                continue
+            top = grp.nlargest(n, "p")
+            precs.append(top["y"].mean())
+            total_pos = grp["y"].sum()
+            recs.append(top["y"].sum() / total_pos if total_pos else np.nan)
+            covered.append(n / len(grp))
+
+        if not precs:
+            continue
+        rows.append({
+            "capacity": n,
+            "precision_at_n": np.mean(precs),
+            "recall_at_n": np.nanmean(recs),
+            "pct_of_sellers": np.mean(covered),
+            "lift_over_base": np.mean(precs) / base_rate,
+            "n_months": len(precs),
+        })
+
+    out = pd.DataFrame(rows)
+    print(f"\ncapacity analysis (base decline rate {base_rate:.3f}):")
+    for _, r in out.iterrows():
+        print(f"  top {int(r['capacity']):3} sellers/month -> "
+              f"precision {r['precision_at_n']:.3f} "
+              f"({r['lift_over_base']:.2f}x base), "
+              f"recall {r['recall_at_n']:.3f}, "
+              f"covers {r['pct_of_sellers']*100:.0f}% of sellers")
+    return out, base_rate
+
+
 def tune_threshold(oof, model_name):
     """pick the cutoff that maximises F1 on the out-of-fold predictions.
 
@@ -258,6 +313,10 @@ def final_model_and_shap(df, feats, best_name, threshold):
     scored = te.copy()
     scored["risk_score"] = probs
     scored["predicted_decline"] = preds
+
+    # rank within the month so the dashboard can show a worklist rather than
+    # a blanket flag. rank 1 = highest risk
+    scored["risk_rank"] = scored["risk_score"].rank(ascending=False, method="first").astype(int)
     return model, summary, scored
 
 
@@ -274,6 +333,15 @@ def main():
 
     threshold, curve = tune_threshold(oof, best_name)
     curve.to_csv(REPORTS_DIR / "threshold_curve.csv", index=False)
+
+    capacity, base_rate = capacity_analysis(oof, best_name)
+    capacity.to_csv(REPORTS_DIR / "capacity_curve.csv", index=False)
+
+    # 50 a month is the default worklist size - roughly 13% of the sellers in
+    # a month, which is a plausible amount of follow-up for one team. its a
+    # business assumption not a statistical one, so its stated plainly rather
+    # than dressed up as optimal
+    recommended_capacity = 50
 
     ablation = run_ablation(df, feats, best_name)
     ablation.to_csv(REPORTS_DIR / "ablation_results.csv", index=False)
@@ -296,7 +364,8 @@ def main():
 
     joblib.dump(model, MODELS_DIR / "seller_best_model.pkl")
     joblib.dump(list(feats), MODELS_DIR / "seller_feature_columns.pkl")
-    joblib.dump({"model": best_name, "threshold": threshold},
+    joblib.dump({"model": best_name, "threshold": threshold,
+                 "capacity": recommended_capacity, "base_rate": float(base_rate)},
                 MODELS_DIR / "seller_model_meta.pkl")
 
     scored["month"] = scored["month"].astype(str)

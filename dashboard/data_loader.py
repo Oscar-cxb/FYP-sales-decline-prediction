@@ -84,6 +84,12 @@ def load_threshold_curve():
     return pd.read_csv(REPORTS_DIR / "threshold_curve.csv")
 
 
+def load_capacity_curve():
+    # precision@N for a few worklist sizes - see capacity_analysis()
+    # in seller_model.py
+    return pd.read_csv(REPORTS_DIR / "capacity_curve.csv")
+
+
 def load_seller_shap_importance():
     return pd.read_csv(REPORTS_DIR / "seller_shap_importance.csv")
 
