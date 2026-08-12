@@ -342,11 +342,8 @@ h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 7p
 .dash-dropdown-content {{
     background: {CARD_2};
     border: 1px solid {LINE};
-    border-radius: 10px;
     color: {TEXT};
     box-shadow: 0 14px 34px rgba(0,0,0,0.55);
-    overflow: hidden;
-    z-index: 60;
 }}
 
 .dash-dropdown-search-container {{
