@@ -8,6 +8,15 @@ way theres one less thing that can silently not load.
 
 plotly cant read css variables so the colours are python constants
 here and get interpolated into the css below. single source of truth.
+
+NOTE ON STYLING DASH COMPONENTS
+dash 4.x rebuilt dcc.Dropdown and dcc.Slider as its own Radix based
+components. they are NOT react-select and NOT rc-slider, so basically
+every answer you find online (.Select-control, .rc-slider-tooltip-inner
+etc) targets classes that dont exist here and silently does nothing.
+the real classes are dash-dropdown-* and dash-slider-*. if something
+wont style, inspect the element and read the class off it rather than
+guessing.
 """
 
 BG        = "#0a0b0f"
@@ -101,8 +110,6 @@ html, body {{
 /* ---------------- content ---------------- */
 
 .content {{ flex: 1; padding: 32px 34px 56px; max-width: 1500px; }}
-
-.page-head {{ margin-bottom: 24px; }}
 
 h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 7px; }}
 
@@ -278,21 +285,13 @@ h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 7p
 
 .filter-count b {{ color: {TEXT}; font-variant-numeric: tabular-nums; }}
 
-/* dcc.Dropdown in this dash version is a fully custom component - it does
-   NOT use react-select, so none of the .Select-control / .Select__menu
-   selectors you find online do anything. pulled the real class names out
-   of dash/dcc/async-dropdown.js:
-
+/* real class names pulled out of dash/dcc/async-dropdown.js:
      .dash-dropdown-wrapper   outer
      .dash-dropdown-trigger   the closed control
-     .dash-dropdown-value     the text inside it (+ -placeholder, -value-item)
      .dash-dropdown-content   the popup
      .dash-dropdown-search    the search box
      .dash-dropdown-actions   the Select All / Deselect All row
-     .dash-dropdown-option    each row in the list
-
-   the popup renders inside the wrapper (no portal) and carries no inline
-   background, so plain css is enough - no !important arms race needed. */
+     .dash-dropdown-option    each row in the list */
 
 .dash-dropdown {{ font-family: {SANS}; font-size: 12.5px; }}
 
@@ -335,9 +334,14 @@ h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 7p
 .dash-dropdown-search-icon {{ color: {TEXT_FAINT}; }}
 
 .dash-dropdown-clear {{ color: {TEXT_FAINT}; }}
-.dash-dropdown-clear:hover {{ color: #fb7185; }}
+.dash-dropdown-clear:hover {{ color: {ROSE}; }}
 
-/* ---- the popup ---- */
+/* ---- the popup ----
+   COLOURS ONLY. do NOT set overflow, max-height or z-index here. the
+   component ships its own css including
+     .dash-dropdown-content:has(.dash-options-list-virtualized) {{ overflow-y: hidden }}
+   which moves scrolling to an inner element when the list virtualises.
+   overriding those is what stopped the menu scrolling past ~5 options. */
 
 .dash-dropdown-content {{
     background: {CARD_2};
@@ -414,6 +418,56 @@ h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 7p
     .filter-count {{ padding-bottom: 0; }}
 }}
 
+/* ---------------- sliders ---------------- */
+
+/* dcc.Slider in dash 4.x is Radix, not rc-slider. it also renders an
+   editable number input beside the track (the allow_direct_input prop,
+   on by default whenever step is set). that input sits in
+   .dash-input-container, whose own css is
+       background: var(--Dash-Fill-Inverse-Strong);   -> white
+       color: inherit;                                -> our light text
+   so it shows as a white box with invisible text. both need overriding. */
+
+.dash-input-container {{
+    background: {CARD_2} !important;
+    border: 1px solid {LINE} !important;
+    color: {TEXT} !important;
+    border-radius: 8px !important;
+}}
+
+.dash-input-container:focus-within {{ border-color: {VIOLET} !important; }}
+
+.dash-range-slider-input {{
+    background: transparent !important;
+    color: {TEXT} !important;
+    font-family: {MONO} !important;
+    font-size: 12px !important;
+}}
+
+.dash-range-slider-input:focus {{ outline-color: {VIOLET} !important; }}
+
+.dash-slider-tooltip {{
+    background-color: {CARD_2} !important;
+    color: {TEXT} !important;
+    fill: {CARD_2} !important;
+    border: 1px solid {LINE};
+    font-family: {MONO};
+    font-size: 11.5px;
+}}
+
+.dash-slider-track {{ background-color: {LINE} !important; }}
+.dash-slider-range {{ background-color: {VIOLET} !important; }}
+
+.dash-slider-thumb {{
+    background-color: {VIOLET} !important;
+    border-color: {CARD} !important;
+}}
+
+.dash-slider-thumb:focus {{ outline-color: {VIOLET} !important; }}
+
+.dash-slider-mark {{ color: {TEXT_DIM} !important; }}
+.dash-slider-dot {{ background-color: {LINE} !important; }}
+
 /* ---------------- model strip ---------------- */
 
 /* sits to the right of the page title as a joined group of cells rather
@@ -471,7 +525,7 @@ h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 7p
     .model-stat {{ flex: 1 0 45%; border-bottom: 1px solid {LINE_SOFT}; }}
 }}
 
-/* even two-column row (the split-row above is deliberately lopsided) */
+/* even two-column row (the split-row below is deliberately lopsided) */
 .duo-row {{
     display: grid; grid-template-columns: 1fr 1fr;
     gap: 14px; margin-bottom: 14px;
@@ -523,6 +577,11 @@ h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 7p
     color: {TEXT_FAINT}; font-size: 11px;
     margin-left: 9px; font-variant-numeric: tabular-nums;
     min-width: 40px; text-align: right;
+}}
+
+.legend-swatch {{
+    width: 8px; height: 8px; border-radius: 50%;
+    display: inline-block;
 }}
 
 /* ---------------- table ---------------- */
