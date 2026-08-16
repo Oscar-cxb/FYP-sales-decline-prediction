@@ -330,9 +330,20 @@ def build_table(df):
 # ------------------------------------------------------------ layout
 
 def layout():
-    # layout as a function so the csvs re-read on page open rather than
-    # once at import time
-    df = load_risk_table()
+    # guarded like the sellers page. without this a missing customer csv
+    # gives a red callback error box instead of telling you what to run,
+    # which is not what you want happening in front of anyone
+    try:
+        df = load_risk_table()
+        load_merged_dataset()
+    except FileNotFoundError:
+        return html.Div([
+            html.H1("Overview"),
+            html.P("Run the customer pipeline first: data_pipeline.py, "
+                   "rfm_features.py, sentiment.py, extra_features.py, "
+                   "clustering.py, then classifier.py.",
+                   className="page-sub"),
+        ])
 
     total = len(df)
     low = int((df["risk_score"] < WATCH_THRESHOLD).sum())

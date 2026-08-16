@@ -100,6 +100,14 @@ html, body {{
 .nav-link:hover {{ color: {TEXT}; background: {CARD_2}; }}
 .nav-link:focus-visible {{ outline: 2px solid {VIOLET}; outline-offset: -2px; }}
 
+.nav-group {{
+    font-size: 9.5px; color: {TEXT_FAINT};
+    text-transform: uppercase; letter-spacing: 0.09em;
+    padding: 16px 14px 6px; font-weight: 600;
+}}
+
+.nav-group:first-child {{ padding-top: 0; }}
+
 .sidebar-footer {{
     margin-top: auto; padding: 16px 22px 0;
     border-top: 1px solid {LINE_SOFT};

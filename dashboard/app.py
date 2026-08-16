@@ -2,20 +2,25 @@
 app.py
 
 Plotly Dash entrypoint. Dark multi-page dashboard.
-Pages: Overview, Segments, Risk Analysis, Interventions, Simulator.
 
 run with:  python dashboard/app.py
 then open  http://127.0.0.1:8050/
 
-note: the css is injected through index_string from theme.py rather
-than sitting in assets/style.css - the assets folder wasnt getting
-picked up reliably and this removes that whole failure mode
+the css is injected through index_string from theme.py rather than
+sitting in assets/style.css - the assets folder wasnt getting picked up
+reliably and this removes that whole failure mode
 """
 
 import sys
+import warnings
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+# joblib still uses an old numpy call to restore array shapes when loading
+# the model pickles. harmless, but it prints a DeprecationWarning on every
+# start and looks like something is broken when youre screen sharing
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 import dash
 from dash import Dash, html, dcc
@@ -47,14 +52,34 @@ app.index_string = """
 </html>
 """.replace("__CSS__", CSS)
 
-NAV_LINKS = [
-    ("Overview", "/"),
-    ("Seller Risk", "/sellers"),
-    ("Segments", "/segments"),
-    ("Risk Analysis", "/risk-analysis"),
-    ("Interventions", "/interventions"),
-    ("Simulator", "/simulator"),
+# grouped, because there are two levels of analysis here and a flat list of
+# seven made them all look like the same kind of thing.
+# customers first because "/" lands on the customer Overview, so the nav
+# order matches where the app actually opens. the seller pages are the
+# primary model though - worth saying so when walking someone through it.
+NAV_GROUPS = [
+    ("Customers", [
+        ("Overview", "/"),
+        ("Segments", "/segments"),
+        ("Customer list", "/customers"),
+    ]),
+    ("Sellers", [
+        ("Seller risk", "/sellers"),
+        ("Interventions", "/interventions"),
+        ("Risk analysis", "/risk-analysis"),
+        ("Simulator", "/simulator"),
+    ]),
 ]
+
+
+def nav():
+    out = []
+    for group, links in NAV_GROUPS:
+        out.append(html.Div(group, className="nav-group"))
+        out.extend(dcc.Link(label, href=href, className="nav-link")
+                   for label, href in links)
+    return out
+
 
 app.layout = html.Div([
     html.Div([
@@ -66,10 +91,7 @@ app.layout = html.Div([
             ]),
         ], className="brand"),
 
-        html.Nav([
-            dcc.Link(label, href=href, className="nav-link")
-            for label, href in NAV_LINKS
-        ], className="nav"),
+        html.Nav(nav(), className="nav"),
 
         html.Div("Olist · 2016–2018", className="sidebar-footer"),
     ], className="sidebar"),
