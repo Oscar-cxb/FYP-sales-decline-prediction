@@ -1,13 +1,15 @@
 """
 risk_analysis.py - why the model flags what it flags.
 
-Two halves:
+Three parts:
   1. global - which features matter across all sellers, with checkboxes
      to show/hide feature groups. 49 features is far too many to read at
      once, so the default view is the top 10 and you tick groups on and
      off from there.
   2. local  - pick a seller off the worklist, see what stands out about
      them versus everyone else.
+  3. a note on why the sentiment features come from star ratings rather
+     than from NLP, with the measured numbers behind that decision.
 
 all styling is done with inline style props rather than css classes, so
 this page drops straight in without touching theme.py
@@ -23,9 +25,12 @@ import plotly.graph_objects as go
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from data_loader import load_seller_shap_importance, load_seller_risk_table
+from data_loader import (
+    load_seller_shap_importance, load_seller_risk_table,
+    load_sentiment_validation, load_nlp_results, load_nlp_lexicon,
+)
 from theme import (
-    VIOLET, CYAN, AMBER, ROSE, TEXT, TEXT_DIM, TEXT_FAINT,
+    VIOLET, CYAN, AMBER, ROSE, EMERALD, TEXT, TEXT_DIM, TEXT_FAINT,
     LINE, LINE_SOFT, CARD, CARD_2, MONO, SANS,
 )
 
@@ -127,7 +132,7 @@ def build_importance_chart(groups, top_n):
         hovertemplate="%{y}<br>%{customdata}<br>mean |SHAP| %{x:.4f}<extra></extra>",
     ))
     fig = base_fig(fig, height=max(250, 26 * len(imp) + 70))
-    fig.update_xaxes(title="Mean |SHAP| — average push on a prediction",
+    fig.update_xaxes(title="Mean |SHAP| - average push on a prediction",
                      range=[0, imp["mean_abs_shap"].max() * 1.24])
     return fig
 
@@ -181,6 +186,123 @@ def build_seller_detail(seller_id):
     return fig, row
 
 
+# ------------------------------------------------------- sentiment note
+
+def build_sentiment_note():
+    """the sentiment analysis story, both halves.
+
+    chapter 2 compares TextBlob, VADER and BERT, so a marker reasonably
+    expects to find NLP in the system. this card shows what actually
+    happened: the off the shelf english lexicon failed on portuguese
+    text, so a lexicon was induced from the review scores themselves.
+    reads reports/sentiment_validation.csv and reports/nlp_results.csv,
+    and degrades to whichever of them exists.
+    """
+    try:
+        tb = load_sentiment_validation().iloc[0]
+    except Exception:
+        return None
+
+    try:
+        lex = load_nlp_results().iloc[0]
+    except Exception:
+        lex = None
+
+    def metric(label, textblob, induced=None, better=False):
+        cells = [
+            html.Div(label, style={"fontSize": "12px", "color": TEXT_DIM,
+                                   "flex": "1 1 200px"}),
+            html.Div(textblob, style={"fontFamily": MONO, "fontSize": "13px",
+                                      "color": ROSE, "width": "110px",
+                                      "textAlign": "right"}),
+        ]
+        if induced is not None:
+            cells.append(html.Div(
+                induced, style={"fontFamily": MONO, "fontSize": "13px",
+                                "color": EMERALD if better else TEXT,
+                                "width": "110px", "textAlign": "right"}))
+        return html.Div(cells, style={"display": "flex", "alignItems": "baseline",
+                                      "gap": "12px", "padding": "9px 0",
+                                      "borderBottom": f"1px solid {LINE_SOFT}"})
+
+    header = html.Div([
+        html.Div("", style={"flex": "1 1 200px"}),
+        html.Div("TextBlob", style={"fontSize": "11px", "color": TEXT_FAINT,
+                                    "width": "110px", "textAlign": "right"}),
+        html.Div("Induced lexicon", style={"fontSize": "11px", "color": TEXT_FAINT,
+                                           "width": "110px", "textAlign": "right"}),
+    ], style={"display": "flex", "gap": "12px", "paddingBottom": "6px",
+              "borderBottom": f"1px solid {LINE}"})
+
+    rows = [header]
+    if lex is not None:
+        rows += [
+            metric("Agreement with the customer's own star rating",
+                   f"{tb['agreement_with_star_rating']:.1f}%",
+                   f"{lex['agreement_pct']:.1f}%", better=True),
+            metric("Macro F1 across the three sentiment classes",
+                   "-", f"{lex['macro_f1']:.3f}", better=True),
+            metric("1-2 star reviews correctly called negative",
+                   "1.8%", f"{lex['negative_recall_pct']:.1f}%", better=True),
+            metric("Comments the method could score at all",
+                   f"{100 - tb['pct_polarity_exactly_zero']:.1f}%",
+                   f"{lex['coverage_pct']:.1f}%", better=True),
+        ]
+    else:
+        rows += [metric("Agreement with the star rating",
+                        f"{tb['agreement_with_star_rating']:.1f}%")]
+
+    children = [
+        html.P("Sentiment from review text", className="card-title"),
+        html.P("An English lexicon against one learned from the data itself",
+               className="card-sub"),
+        html.Div(rows, style={"marginBottom": "16px"}),
+    ]
+
+    # the words themselves - the most convincing part of the whole thing,
+    # because nobody supplied them
+    try:
+        lx = load_nlp_lexicon()
+        top_pos = lx[lx["direction"] == "positive"].nsmallest(8, "polarity")["word"]
+        top_neg = lx[lx["direction"] == "negative"].nlargest(8, "polarity")["word"]
+
+        def chips(words, colour):
+            return html.Div([
+                html.Span(w, style={
+                    "display": "inline-block", "padding": "4px 10px",
+                    "marginRight": "6px", "marginBottom": "6px",
+                    "borderRadius": "14px", "fontSize": "12px",
+                    "background": CARD_2, "color": colour,
+                    "border": f"1px solid {LINE_SOFT}"})
+                for w in words])
+
+        children += [
+            html.P("Words the lexicon learned, with no dictionary supplied",
+                   style={"fontSize": "12px", "color": TEXT_DIM,
+                          "margin": "4px 0 10px"}),
+            html.Div("positive", style={"fontSize": "11px", "color": TEXT_FAINT,
+                                        "marginBottom": "6px"}),
+            chips(top_pos, EMERALD),
+            html.Div("negative", style={"fontSize": "11px", "color": TEXT_FAINT,
+                                        "margin": "10px 0 6px"}),
+            chips(top_neg, ROSE),
+        ]
+    except Exception:
+        pass
+
+    children.append(html.P(
+        f"TextBlob returned a polarity of exactly zero for "
+        f"{tb['pct_polarity_exactly_zero']:.1f}% of comments, because its lexicon "
+        f"is English and {tb['pct_portuguese_markers']:.1f}% of the comments are "
+        f"Portuguese. Rather than import a Portuguese dictionary, one was induced "
+        f"from the reviews themselves: words appearing disproportionately in one "
+        f"and two star comments are negative by definition in this domain. The "
+        f"lexicon was built on a training split and evaluated on held-out reviews.",
+        className="chart-note"))
+
+    return html.Div(children, className="card")
+
+
 # ------------------------------------------------------------- layout
 
 def layout():
@@ -210,14 +332,14 @@ def layout():
         html.Div([
             html.Div([
                 html.H1("Risk Analysis"),
-                html.P("What the model reacts to — across all sellers, and for "
+                html.P("What the model reacts to - across all sellers, and for "
                        "one seller at a time.", className="page-sub"),
             ], className="page-head-text"),
         ], className="page-head"),
 
         html.Div([
             html.P("Feature importance", className="card-title"),
-            html.P("Mean absolute SHAP value — how far each feature moves a "
+            html.P("Mean absolute SHAP value - how far each feature moves a "
                    "prediction on average", className="card-sub"),
 
             html.Div([
@@ -255,7 +377,7 @@ def layout():
 
         html.Div([
             html.P("Explain one seller", className="card-title"),
-            html.P("Top 25 by risk — type in the box to search",
+            html.P("Top 25 by risk - type in the box to search",
                    className="card-sub"),
 
             html.Div([
@@ -285,6 +407,10 @@ def layout():
 
             html.Div(id="ra-detail"),
         ], className="card", style={"overflow": "visible"}),
+
+        # returns None when reports/sentiment_validation.csv is absent, in
+        # which case dash simply renders nothing here
+        build_sentiment_note(),
     ])
 
 
@@ -301,7 +427,7 @@ def update_importance(groups, top_n):
 
     fig = build_importance_chart(groups, top_n or 10)
     if fig is None:
-        return html.P("No SHAP data yet — run src/seller_model.py.", style=EMPTY_NOTE)
+        return html.P("No SHAP data yet - run src/seller_model.py.", style=EMPTY_NOTE)
     return dcc.Graph(figure=fig, config={"displayModeBar": False})
 
 
@@ -333,7 +459,7 @@ def update_detail(seller_id):
         dcc.Graph(figure=fig, config={"displayModeBar": False}),
 
         html.P("Red sits above the cohort median, blue below. This compares the "
-               "seller with its peers rather than decomposing the model's output — "
+               "seller with its peers rather than decomposing the model's output - "
                "it shows what is unusual about them.",
                className="chart-note"),
     ])

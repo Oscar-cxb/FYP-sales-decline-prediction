@@ -1,0 +1,2 @@
+lexicon_words,train_comments,test_comments,coverage_pct,agreement_pct,majority_baseline_pct,lift_over_baseline,macro_f1,majority_macro_f1,textblob_agreement_pct,negative_recall_pct
+500,25824,11131,98.0,77.8,61.7,16.1,0.637,0.254,14.8,70.2

@@ -1,26 +1,34 @@
 """
 data_loader.py
 
-Single place that loads all the data/models the dashboard needs.
-Every page imports from here instead of each one reading its own
-csvs - keeps things consistent and means we only load stuff once.
+Single place that loads everything the dashboard needs. Every page
+imports from here rather than reading its own csvs, so paths live in
+one file and a rename only has to happen once.
+
+Nothing here computes anything - the pipeline scripts do all the work
+and write their output to data/processed and reports. If a number shows
+up on a page that isnt in one of these files, something has gone wrong.
 """
 
 import pandas as pd
 import joblib
 from pathlib import Path
 
-PROCESSED_DIR = Path(__file__).resolve().parent.parent / "data" / "processed"
-MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
-REPORTS_DIR = Path(__file__).resolve().parent.parent / "reports"
+ROOT = Path(__file__).resolve().parent.parent
+PROCESSED_DIR = ROOT / "data" / "processed"
+MODELS_DIR = ROOT / "models"
+REPORTS_DIR = ROOT / "reports"
 
+
+# ---------------------------------------------------------- customer level
 
 def load_risk_table():
+    """scored customers - written by classifier.py"""
     return pd.read_csv(PROCESSED_DIR / "customer_risk_table.csv")
 
 
 def load_merged_dataset():
-    # for the monthly order trend chart on the overview page
+    """the cleaned order-item table, for the monthly trend chart"""
     df = pd.read_csv(PROCESSED_DIR / "merged_dataset.csv")
     df["order_purchase_timestamp"] = pd.to_datetime(df["order_purchase_timestamp"])
     return df
@@ -35,8 +43,8 @@ def load_model_comparison():
 
 
 def load_model():
-    # loads whichever model classifier.py decided was best (rf or xgb) -
-    # just try xgb first since thats what won last run, fall back to rf
+    # whichever classifier.py picked. xgboost won last run, so try that
+    # first and fall back rather than hardcoding a winner
     try:
         return joblib.load(MODELS_DIR / "xgb_model.pkl")
     except FileNotFoundError:
@@ -54,10 +62,11 @@ def load_rfm_scaler():
 def load_kmeans_model():
     return joblib.load(MODELS_DIR / "kmeans_model.pkl")
 
-# ---------------- seller level (the primary model) ----------------
+
+# ------------------------------------------- seller level (primary model)
 
 def load_seller_risk_table():
-    # scored seller-months from the test period, written by seller_classifier.py
+    """scored seller-months from the final holdout - seller_model.py"""
     df = pd.read_csv(PROCESSED_DIR / "seller_risk_table.csv")
     df["month"] = pd.PeriodIndex(df["month"], freq="M")
     return df
@@ -70,24 +79,13 @@ def load_seller_panel():
 
 
 def load_seller_cv_results():
-    # written by seller_model.py - one row per model with mean/std AUC
-    # across the rolling origin folds
+    """one row per model, with mean and std AUC across the rolling folds"""
     return pd.read_csv(REPORTS_DIR / "seller_cv_results.csv")
 
 
 def load_seller_model_meta():
-    # which model won and the tuned decision threshold
+    """which model won, the tuned threshold, worklist size, base rate"""
     return joblib.load(MODELS_DIR / "seller_model_meta.pkl")
-
-
-def load_threshold_curve():
-    return pd.read_csv(REPORTS_DIR / "threshold_curve.csv")
-
-
-def load_capacity_curve():
-    # precision@N for a few worklist sizes - see capacity_analysis()
-    # in seller_model.py
-    return pd.read_csv(REPORTS_DIR / "capacity_curve.csv")
 
 
 def load_seller_shap_importance():
@@ -99,4 +97,38 @@ def load_seller_shap_groups():
 
 
 def load_ablation_results():
+    """feature-group ablation - this is the objective 3 evidence"""
     return pd.read_csv(REPORTS_DIR / "ablation_results.csv")
+
+
+def load_threshold_curve():
+    return pd.read_csv(REPORTS_DIR / "threshold_curve.csv")
+
+
+def load_capacity_curve():
+    """precision@N for a few worklist sizes"""
+    return pd.read_csv(REPORTS_DIR / "capacity_curve.csv")
+
+
+# ------------------------------------------------------- sentiment and nlp
+
+def load_sentiment_validation():
+    """how TextBlob actually did on the portuguese text -
+    written by src/sentiment_validation.py"""
+    return pd.read_csv(REPORTS_DIR / "sentiment_validation.csv")
+
+
+def load_nlp_results():
+    """how the induced lexicon did - src/nlp_lexicon.py"""
+    return pd.read_csv(REPORTS_DIR / "nlp_results.csv")
+
+
+def load_nlp_lexicon():
+    """the portuguese sentiment words the lexicon learned, and their weights"""
+    return pd.read_csv(REPORTS_DIR / "nlp_lexicon.csv")
+
+
+def load_text_sentiment():
+    """per-order sentiment scored from the comment text. not currently a
+    model feature - see the note in nlp_lexicon.py"""
+    return pd.read_csv(PROCESSED_DIR / "text_sentiment.csv")
