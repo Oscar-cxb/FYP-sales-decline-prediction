@@ -93,7 +93,7 @@ def build_model_strip(best_name, capacity):
             ("Model", str(row["model"]), False),
             ("AUC-ROC", f"{row['mean_auc']:.3f} ± {row['std_auc']:.3f}", True),
             ("CV folds", f"{int(row['n_folds'])}", False),
-            ("Worklist", f"top {capacity}", False),
+            ("Worklist", f"Top {capacity}", False),
         ]
     except Exception:
         return html.Div()
@@ -347,13 +347,13 @@ def layout():
         ], className="page-head"),
 
         html.Div([
-            kpi_card("\u25c8", VIOLET, "Sellers scored", f"{n:,}", f"in {month}"),
+            kpi_card("\u25c8", VIOLET, "Sellers Scored", f"{n:,}", f"in {month}"),
             kpi_card("\u25b2", ROSE, "Worklist", f"top {capacity}",
-                     f"{capacity / n * 100:.0f}% of sellers this month",
+                     f"{capacity / n * 100:.0f}% Of Sellers This Month",
                      capacity / n * 100),
-            kpi_card("\u25d0", AMBER, f"Precision @{capacity}", prec_txt, prec_sub),
-            kpi_card("\u25ae", EMERALD, "Revenue in worklist", f"R$ {rev_worklist:,.0f}",
-                     f"{rev_worklist / total_rev * 100:.0f}% of the month's revenue",
+            kpi_card("\u25d0", AMBER, f"Precision @ {capacity}", prec_txt, prec_sub),
+            kpi_card("\u25ae", EMERALD, "Revenue In Worklist", f"R$ {rev_worklist:,.0f}",
+                     f"{rev_worklist / total_rev * 100:.0f}% Of The Month's Revenue",
                      rev_worklist / total_rev * 100),
         ], className="kpi-row"),
     ]
@@ -423,7 +423,7 @@ def layout():
         ], className="duo-row"))
 
     blocks.append(html.Div([
-        html.P(f"Worklist — top {capacity} by risk", className="card-title"),
+        html.P(f"Worklist — Top {capacity} By Risk", className="card-title"),
         html.P("In rank order, highest risk first. Showing the first 12.",
                className="card-sub"),
         build_table(df, capacity),

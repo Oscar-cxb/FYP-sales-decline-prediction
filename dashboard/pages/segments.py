@@ -318,21 +318,21 @@ def layout():
                 ], className="model-stat"),
                 html.Div([
                     html.Span("Chosen by", className="model-stat-label"),
-                    html.Span("silhouette", className="model-stat-value"),
+                    html.Span("Silhouette", className="model-stat-value"),
                 ], className="model-stat"),
             ], className="model-strip"),
         ], className="page-head"),
 
         html.Div([
             kpi_card("\u25c8", VIOLET, "Segments", f"{len(order)}",
-                     "k chosen by silhouette score"),
+                     "K chosen by Silhouette score"),
             kpi_card("\u25c9", SEGMENT_COLOUR.get(biggest["segment_name"], CYAN),
                      "Largest segment", biggest["segment_name"],
-                     f"{biggest['customers']:,.0f} customers · {biggest['share']:.0%}"),
+                     f"{biggest['customers']:,.0f} Customers · {biggest['share']:.0%}"),
             kpi_card("\u25b2", ROSE, "Highest mean risk", riskiest["segment_name"],
-                     f"risk {riskiest['risk']:.3f}"),
+                     f"Risk {riskiest['risk']:.3f}"),
             kpi_card("\u21bb", EMERALD, "Most repeat buying", repeat["segment_name"],
-                     f"{repeat['frequency']:.2f} orders per customer"),
+                     f"{repeat['frequency']:.2f} Orders Per Customer"),
         ], className="kpi-row"),
 
         html.Div([

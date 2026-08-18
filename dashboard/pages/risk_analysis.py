@@ -188,7 +188,7 @@ def layout():
         df = load_seller_risk_table()
     except FileNotFoundError:
         return html.Div([
-            html.H1("Risk analysis"),
+            html.H1("Risk Analysis"),
             html.P("Run src/seller_features.py then src/seller_model.py first.",
                    className="page-sub"),
         ])
@@ -209,7 +209,7 @@ def layout():
     return html.Div([
         html.Div([
             html.Div([
-                html.H1("Risk analysis"),
+                html.H1("Risk Analysis"),
                 html.P("What the model reacts to — across all sellers, and for "
                        "one seller at a time.", className="page-sub"),
             ], className="page-head-text"),

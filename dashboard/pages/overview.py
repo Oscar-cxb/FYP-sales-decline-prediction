@@ -372,11 +372,11 @@ def layout():
 
         html.Div([
             kpi_card("◈", VIOLET, "Customers scored", f"{total:,}",
-                     "all active before the June cutoff", 100,
+                     "All Active Before The June Cutoff", 100,
                      href="/customers?band=all&sort=risk_score",
                      cta="See every customer"),
             kpi_card("▲", ROSE, "High risk", f"{high:,}",
-                     f"{high / total * 100:.1f}% of the base", high / total * 100,
+                     f"{high / total * 100:.1f}% Of The Base", high / total * 100,
                      href="/customers?band=high&sort=risk_score",
                      cta="See the flagged list"),
             kpi_card("◐", AMBER, "Mean risk score", f"{avg_risk:.3f}",
@@ -384,7 +384,7 @@ def layout():
                      href="/customers?band=watch&sort=risk_score",
                      cta="See the watch band"),
             kpi_card("▮", EMERALD, "Spend exposed", f"R$ {exposed:,.0f}",
-                     f"{exposed / total_spend * 100:.1f}% of all spend",
+                     f"{exposed / total_spend * 100:.1f}% Of All Spend",
                      exposed / total_spend * 100,
                      href="/customers?band=high&sort=monetary",
                      cta="See who holds it"),

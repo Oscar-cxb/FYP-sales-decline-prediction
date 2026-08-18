@@ -387,16 +387,16 @@ def layout():
             ], className="page-head-text"),
 
             html.Div([
-                html.Div([html.Span("Worklist", className="model-stat-label"),
-                          html.Span(f"top {capacity}", className="model-stat-value")],
-                         className="model-stat"),
+                html.Div([html.Span("Method", className="model-stat-label"),
+                                          html.Span("Rule Based", className="model-stat-value")],
+                                         className="model-stat"),
                 html.Div([html.Span("Actionable", className="model-stat-label"),
                           html.Span(f"{actionable}",
                                     className="model-stat-value accent")],
                          className="model-stat"),
-                html.Div([html.Span("Method", className="model-stat-label"),
-                          html.Span("rule based", className="model-stat-value")],
-                         className="model-stat"),
+                html.Div([html.Span("Worklist", className="model-stat-label"),
+                                          html.Span(f"Top {capacity}", className="model-stat-value")],
+                                         className="model-stat"),
             ], className="model-strip"),
         ], className="page-head"),
 
@@ -408,7 +408,7 @@ def layout():
 
         html.Div([
             html.P("The worklist", className="card-title"),
-            html.P("In rank order, highest risk first", className="card-sub"),
+            html.P("In rank order, HIGHEST RISK first", className="card-sub"),
 
             html.Div([
                 html.Div([
@@ -490,18 +490,18 @@ def update_summary(capacity):
 
     if "d_avg_review_score" in work.columns:
         falling = int((work["d_avg_review_score"] < 0).sum())
-        falling_sub = f"of {len(work)} on the worklist"
+        falling_sub = f"of {len(work)} On The Worklist"
     else:
         falling, falling_sub = 0, "no review data"
 
     kpis = html.Div([
-        kpi_card("\u25c8", VIOLET, "On the worklist", f"{len(work)}",
-                 f"highest risk sellers in {month}"),
-        kpi_card("\u2713", EMERALD, "Worth acting on", f"{actionable}",
-                 "the rest look like mean reversion"),
-        kpi_card("\u2193", ROSE, "Reviews falling", f"{falling}", falling_sub),
-        kpi_card("\u25ae", AMBER, "Revenue at stake", f"R$ {rev_actionable:,.0f}",
-                 "held by sellers worth acting on"),
+        kpi_card("\u25c8", VIOLET, "On The Worklist", f"{len(work)}",
+                 f"Highest Risk Sellers in {month}"),
+        kpi_card("\u2713", EMERALD, "Worth Acting On", f"{actionable}",
+                 "The Rest Look Like Mean Reversion"),
+        kpi_card("\u2193", ROSE, "Reviews Falling", f"{falling}", falling_sub),
+        kpi_card("\u25ae", AMBER, "Revenue At Stake", f"R$ {rev_actionable:,.0f}",
+                 "Held by Sellers Worth Acting On"),
     ], className="kpi-row")
 
     sentiment_fig = build_sentiment_chart(work)
