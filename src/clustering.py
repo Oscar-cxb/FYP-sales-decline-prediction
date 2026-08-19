@@ -105,7 +105,8 @@ def label_segments(df, scaled_features):
     #   early). (note: the at_risk % comparison that originally motivated this
     #   rename was from an earlier, since-replaced label definition - keeping
     #   the rename anyway since the delivery-delay observation itself still holds)
-    segment_names_pool = ["Champions", "Promising", "Needs Attention", "At Risk", "Delayed Delivery", "Hibernating"]
+    segment_names_pool = ["Champions", "Promising", "At Risk", "Needs Attention",
+                          "Delayed Delivery", "Hibernating"]
     ranked_clusters = cluster_avg.index.tolist()
 
     name_map = {}

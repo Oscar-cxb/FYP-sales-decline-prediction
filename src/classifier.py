@@ -208,7 +208,7 @@ def main():
 
     # running SHAP on whichever model actually performed better instead of
     # just always assuming its RF
-    best_model = rf if rf_results["f1"] >= xgb_results["f1"] else xgb_model
+    best_model = rf if rf_results["auc"] >= xgb_results["auc"] else xgb_model
     best_name = "Random Forest" if best_model is rf else "XGBoost"
     print(f"\nbest model by F1: {best_name}")
 
