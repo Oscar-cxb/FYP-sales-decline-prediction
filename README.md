@@ -72,8 +72,8 @@ model see future months while predicting past ones.
 
 | Model                          | Mean AUC  |  Std  |
 |--------------------------------|---------- |-------|
-| Random Forest                  | **0.707** | 0.028 |
-| XGBoost                        | 0.695     | 0.027 |
+| Random Forest                  | **0.706** | 0.028 |
+| XGBoost                        | 0.692     | 0.026 |
 | Logistic Regression (baseline) | 0.644     | 0.024 |
 
 **Ablation** — same model and folds, retrained on each feature block:

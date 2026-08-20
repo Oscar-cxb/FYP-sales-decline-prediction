@@ -43,12 +43,16 @@ def load_model_comparison():
 
 
 def load_model():
-    # whichever classifier.py picked. xgboost won last run, so try that
-    # first and fall back rather than hardcoding a winner
+    """whichever classifier.py scored highest on AUC - read from the
+    comparison csv rather than assuming, so this cant drift away from the
+    model the rest of the project reports"""
     try:
+        comp = pd.read_csv(REPORTS_DIR / "model_comparison.csv")
+        best = comp.loc[comp["auc"].idxmax(), "model"]
+        name = "xgb_model.pkl" if best == "XGBoost" else "rf_model.pkl"
+        return joblib.load(MODELS_DIR / name)
+    except Exception:
         return joblib.load(MODELS_DIR / "xgb_model.pkl")
-    except FileNotFoundError:
-        return joblib.load(MODELS_DIR / "rf_model.pkl")
 
 
 def load_feature_columns():
