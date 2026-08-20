@@ -29,7 +29,7 @@ from data_loader import (
     load_seller_shap_importance, load_seller_risk_table,
     load_sentiment_validation, load_nlp_results, load_nlp_lexicon,
 )
-from review_explorer import build_review_explorer
+
 from theme import (
     VIOLET, CYAN, AMBER, ROSE, EMERALD, TEXT, TEXT_DIM, TEXT_FAINT,
     LINE, LINE_SOFT, CARD, CARD_2, MONO, SANS,
@@ -412,7 +412,6 @@ def layout():
         # returns None when reports/sentiment_validation.csv is absent, in
         # which case dash simply renders nothing here
         build_sentiment_note(),
-        build_review_explorer(),  
     ])
 
 

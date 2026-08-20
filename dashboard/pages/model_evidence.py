@@ -36,6 +36,7 @@ from data_loader import (
     load_model_comparison, load_seller_cv_results, load_threshold_curve,
     REPORTS_DIR,
 )
+from review_explorer import build_review_explorer
 from theme import (
     VIOLET, CYAN, AMBER, ROSE, EMERALD,
     TEXT, TEXT_DIM, TEXT_FAINT, LINE, LINE_SOFT, CARD, CARD_2, MONO, SANS, rgba,
@@ -434,6 +435,8 @@ def layout(**kwargs):
             }),
         ], className="card"))
 
+    blocks.append(build_review_explorer())
+    
     return html.Div(blocks)
 
 

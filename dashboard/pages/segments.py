@@ -370,22 +370,6 @@ def layout():
             ], className="card"),
 
             html.Div([
-                html.P("Average spend per customer", className="card-title"),
-                html.P("Where the money actually sits", className="card-sub"),
-                dcc.Graph(figure=build_profile_chart(stats, "monetary", "spend"),
-                          config={"displayModeBar": False}),
-            ], className="card"),
-        ], className="duo-row"),
-
-        html.Div([
-            html.Div([
-                html.P("Average days since last order", className="card-title"),
-                html.P("Lower is more recently active", className="card-sub"),
-                dcc.Graph(figure=build_profile_chart(stats, "recency", "recency"),
-                          config={"displayModeBar": False}),
-            ], className="card"),
-
-            html.Div([
                 html.P("Average delivery delay", className="card-title"),
                 html.P("Negative means early — most Olist orders beat the estimate",
                        className="card-sub"),
