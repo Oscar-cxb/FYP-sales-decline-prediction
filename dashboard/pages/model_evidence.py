@@ -392,8 +392,8 @@ def layout(**kwargs):
     if curve is not None:
         blocks.append(html.Div([
             html.P("Decision threshold", className="card-title"),
-            html.P("Drag to see what the same model looks like at a different "
-                   "cut-off. The model does not change — only where the line "
+html.P("Random Forest on seller decline — the selected model above. "
+                   "Dragging does not change the model, only where the line "
                    "between 'flag' and 'ignore' is drawn.",
                    className="card-sub"),
 
