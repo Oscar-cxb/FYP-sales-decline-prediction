@@ -30,6 +30,8 @@ dash.register_page(__name__, path="/", name="Overview")
 WATCH_THRESHOLD = 0.25
 HIGH_THRESHOLD = 0.50
 
+# resample("ME") lands on month ends, so June 2018 is the 30th
+VOLUME_CUTOFF = pd.Timestamp("2018-06-30")
 
 def band_of(score):
     if score >= HIGH_THRESHOLD:
@@ -154,6 +156,14 @@ def build_monthly_trend():
     )
     monthly.columns = ["month", "orders"]
 
+    # the series stops at the observation cutoff. merged_dataset.csv runs to
+    # the end of the collection window, but nothing is scored past 1 June 2018,
+    # so those last months are an artefact of when the export was taken rather
+    # than a fall in demand. drawn in full it was a cliff to near zero, which
+    # is the first thing anyone's eye goes to and the first thing you then
+    # have to explain away
+    monthly = monthly[monthly["month"] <= VOLUME_CUTOFF]
+
     fig = go.Figure(go.Scatter(
         x=monthly["month"], y=monthly["orders"],
         mode="lines",
@@ -200,7 +210,7 @@ def build_delivery_chart(df):
     # nothing on this page actually showed it, so binning it here. negative
     # delay = arrived before the estimate, which is most of the dataset
     bins = [-float("inf"), -0.001, 3, 10, float("inf")]
-    labels = ["Early", "On time (0-3d)", "Late (4-10d)", "Late (10d+)"]
+    labels = ["Early", "On time (0-3d)", "Late (4-10d)", "Late (10+d)"]
 
     d = df.copy()
     d["delay_band"] = pd.cut(d["avg_delivery_delay"], bins=bins, labels=labels)
@@ -238,7 +248,11 @@ def build_model_strip(n_customers):
     # reads better than pretending the model is stronger than it is
     try:
         comp = load_model_comparison()
-        best = comp.loc[comp["f1"].idxmax()]
+             # AUC, matching how classifier.py picks the model it actually saves.
+        # RF edges XGBoost on F1 (0.41591 vs 0.41538) while losing on AUC, so
+        # selecting on F1 here named a different model from the one
+        # data_loader.load_model() loads
+        best = comp.loc[comp["auc"].idxmax()]
         name, f1, auc = best["model"], best["f1"], best["auc"]
     except Exception:
         # reports/model_comparison.csv only exists after classifier.py has run
@@ -402,9 +416,10 @@ def layout():
                 html.P("Monthly order volume", className="card-title"),
                 html.P("Unique orders per month across the dataset", className="card-sub"),
                 dcc.Graph(figure=build_monthly_trend(), config={"displayModeBar": False}),
-                html.P(
-                    "The fall after mid-2018 is where the dataset ends, not a real "
-                    "decline — which is why scoring stops at the June cutoff.",
+                                html.P(
+                    "Cut at the June 2018 observation cutoff. The dataset runs a "
+                    "few months further, but those months are the export closing, "
+                    "not demand falling, and nothing after the cutoff is scored.",
                     className="chart-note",
                 ),
             ], className="card"),

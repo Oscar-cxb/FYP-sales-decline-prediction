@@ -40,8 +40,8 @@ from theme import (
 dash.register_page(__name__, path="/segments", name="Segments")
 
 # ordered best -> worst, matching how clustering.py ranks them
-SEGMENT_ORDER = ["Champions", "Promising", "Needs Attention",
-                 "At Risk", "Delayed Delivery", "Hibernating"]
+SEGMENT_ORDER = ["Champions", "Promising", "At Risk", "Needs Attention",
+                 "Delayed Delivery", "Hibernating"]
 
 SEGMENT_COLOUR = {
     "Champions": EMERALD,
@@ -56,10 +56,10 @@ SEGMENT_COLOUR = {
 SEGMENT_NOTE = {
     "Champions": "the only segment with real repeat purchasing",
     "Promising": "recent and high spending, but still one-time buyers",
-    "Needs Attention": "spent well, then went quiet",
-    "At Risk": "low spend and drifting away",
+    "At Risk": "spent well, then went quiet — nearly a year since their last order",
+    "Needs Attention": "recently active, but the lowest spend of any segment",
     "Delayed Delivery": "defined by late deliveries, not by low value",
-    "Hibernating": "dormant — longest gap since their last order",
+    "Hibernating": "quiet as long as At Risk, but low value — least worth recovering",
 }
 
 SCATTER_SAMPLE = 6000   # 77k points is more than a browser wants to draw

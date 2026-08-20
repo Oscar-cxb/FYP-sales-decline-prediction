@@ -69,6 +69,9 @@ NAV_GROUPS = [
         ("Risk analysis", "/risk-analysis"),
         ("Simulator", "/simulator"),
     ]),
+    ("Evidence", [
+        ("Model evidence", "/model-evidence"),
+    ]),
 ]
 
 

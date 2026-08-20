@@ -258,7 +258,7 @@ def layout():
         ], className="card"),
 
         html.Div([
-            html.Span("Seller", style=CONTROL_LABEL),
+            html.Span("Select High-Risk Seller (Top 25 Worklist)", style=CONTROL_LABEL),
             html.Div(dcc.Dropdown(id="sim-seller", options=options,
                                   value=options[0]["value"] if options else None,
                                   clearable=False, className="dash-dropdown"),

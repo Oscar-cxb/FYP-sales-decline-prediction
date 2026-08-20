@@ -210,7 +210,7 @@ def main():
     # just always assuming its RF
     best_model = rf if rf_results["auc"] >= xgb_results["auc"] else xgb_model
     best_name = "Random Forest" if best_model is rf else "XGBoost"
-    print(f"\nbest model by F1: {best_name}")
+    print(f"\nbest model by AUC: {best_name}")
 
     explainer, shap_values = run_shap_explainability(best_model, X_train_res, X_test)
 

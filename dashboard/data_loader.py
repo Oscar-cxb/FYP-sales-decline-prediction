@@ -63,6 +63,7 @@ def load_kmeans_model():
     return joblib.load(MODELS_DIR / "kmeans_model.pkl")
 
 
+
 # ------------------------------------------- seller level (primary model)
 
 def load_seller_risk_table():
@@ -132,3 +133,8 @@ def load_text_sentiment():
     """per-order sentiment scored from the comment text. not currently a
     model feature - see the note in nlp_lexicon.py"""
     return pd.read_csv(PROCESSED_DIR / "text_sentiment.csv")
+
+def load_review_examples():
+    """individual reviews with both sentiment scores attached, for the raw
+    review card - src/review_examples.py"""
+    return pd.read_csv(REPORTS_DIR / "review_examples.csv")
