@@ -286,9 +286,21 @@ def build_threshold_chart(curve, t):
             hovertemplate=label + " %{y:.3f} at %{x:.2f}<extra></extra>",
         ))
 
+    # Add F1 peak reference marker to show the standard mathematical baseline
+    if "f1" in curve.columns and not curve["f1"].empty:
+        f1_max_idx = curve["f1"].idxmax()
+        f1_max_t = float(curve.loc[f1_max_idx, "threshold"])
+        fig.add_vline(x=f1_max_t, line=dict(color=rgba(VIOLET, 0.35), width=1, dash="dash"))
+        fig.add_annotation(
+            x=f1_max_t, y=0.98, yref="paper", xanchor="center", yanchor="top",
+            text=f"F1 Max ({f1_max_t:.2f})", showarrow=False,
+            font=dict(color=TEXT_FAINT, size=9.5, family=MONO),
+        )
+
+    # Add selected threshold line
     row, _ = threshold_row(curve, t)
     fig.add_vline(x=float(row["threshold"]),
-                  line=dict(color=TEXT_DIM, width=1, dash="dot"))
+                  line=dict(color=TEXT, width=1.5, dash="dot"))
 
     fig = base_layout(fig, height=280)
     fig.update_layout(
@@ -297,8 +309,10 @@ def build_threshold_chart(curve, t):
                     xanchor="left", x=0, font=dict(size=11, color=TEXT_DIM)),
         margin=dict(l=6, r=10, t=34, b=34),
     )
-    fig.update_xaxes(title=dict(text="decision threshold",
-                                font=dict(size=10.5, color=TEXT_FAINT)))
+    fig.update_xaxes(
+    range=[0.10, 0.90], dtick=0.10,
+    title=dict(text="decision threshold", font=dict(size=10.5, color=TEXT_FAINT))
+)
     fig.update_yaxes(range=[0, 1.02], dtick=0.2, title=None)
     return fig
 
@@ -402,7 +416,7 @@ html.P("Random Forest on seller decline — the selected model above. "
                 min=0.10, max=0.90, step=0.01, value=DEFAULT_THRESHOLD,
                 marks={v: {"label": f"{v:.2f}"}
                        for v in (0.10, 0.30, 0.50, 0.70, 0.90)},
-                tooltip={"placement": "bottom", "always_visible": True},
+                tooltip={"placement": "bottom", "always_visible": False},
             ),
 
             html.Div(id="me-threshold-stats", style={"marginTop": "22px"}),
