@@ -181,9 +181,22 @@ def build_seller_detail(seller_id):
                        "<br>cohort median %{customdata[1]:,.2f}"
                        "<br>%{x:+.2f} SD from median<extra></extra>"),
     ))
-    fig.add_vline(x=0, line_width=1, line_color=LINE)
+    fig.add_vline(x=0, line_width=1.5, line_color=TEXT_FAINT, line_dash="dot")
+    fig.add_annotation(x=0, y=1.04, yref="paper", xanchor="center",
+                       yanchor="bottom", text="cohort median", showarrow=False,
+                       font=dict(color=TEXT_FAINT, size=10.5, family=MONO))
+
     fig = base_fig(fig, height=max(240, 28 * len(comp) + 70))
-    fig.update_xaxes(title="Standard deviations from the cohort median")
+
+    # always keep some of the other side of zero in view. a high-risk seller
+    # can sit above the median on every one of the top features, and with a
+    # range fitted to the data that reads as a plain bar chart rather than a
+    # diverging one - the direction is the whole point of this chart
+    hi, lo = float(comp["z"].max()), float(comp["z"].min())
+    span = max(abs(hi), abs(lo), 0.5)
+    fig.update_xaxes(range=[min(lo * 1.15, -0.3 * span),
+                            max(hi * 1.15, 0.3 * span)],
+                     title="Standard deviations from the cohort median")
     return fig, row
 
 

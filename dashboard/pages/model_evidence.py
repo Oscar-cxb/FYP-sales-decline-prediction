@@ -34,9 +34,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from data_loader import (
     load_model_comparison, load_seller_cv_results, load_threshold_curve,
-    REPORTS_DIR,
+    load_threshold_curve_by_model, load_capacity_curve_by_model,
+    load_roc_by_model, REPORTS_DIR,
 )
-from review_explorer import build_review_explorer
 from theme import (
     VIOLET, CYAN, AMBER, ROSE, EMERALD,
     TEXT, TEXT_DIM, TEXT_FAINT, LINE, LINE_SOFT, CARD, CARD_2, MONO, SANS, rgba,
@@ -187,8 +187,18 @@ def build_table(rows):
         style_cell={"backgroundColor": "rgba(0,0,0,0)", "color": TEXT,
                     "border": "none", "padding": "11px 14px 11px 0",
                     "fontSize": "12.5px", "fontFamily": SANS, "textAlign": "left"},
-        style_cell_conditional=[{"if": {"column_id": c}, "textAlign": "right"}
-                                for c in numeric],
+        # explicit widths. left to itself the table spreads over the full card
+        # and opens a wide gap between the text columns and the numbers, which
+        # makes a row hard to read across
+        style_cell_conditional=[
+            {"if": {"column_id": "model"}, "width": "17%"},
+            {"if": {"column_id": "task"}, "width": "20%"},
+            {"if": {"column_id": "validation"}, "width": "22%"},
+            {"if": {"column_id": "auc"}, "width": "15%", "textAlign": "right"},
+            {"if": {"column_id": "f1"}, "width": "11%", "textAlign": "right"},
+            {"if": {"column_id": "lift"}, "width": "9%", "textAlign": "right"},
+            {"if": {"column_id": "verdict"}, "width": "6%"},
+        ],
         style_data_conditional=[
             {"if": {"column_id": numeric}, "fontFamily": MONO, "fontSize": "12px"},
             {"if": {"column_id": ["validation", "task"]},
@@ -209,15 +219,33 @@ def build_table(rows):
 # --------------------------------------------------------- AUC chart
 
 def build_auc_chart(rows):
+    """bars measured from chance, not from zero.
+
+    A bar's length has to encode something real, which is why truncating a
+    normal bar axis to exaggerate small differences is dishonest. But AUC does
+    not start at zero - 0.5 is chance, and everything below it is unreachable
+    for a model that ranks at all. So the bars are anchored at 0.5 and their
+    length is lift over chance, which IS the quantity worth comparing. The
+    axis can then start at 0.5 without misrepresenting anything, and a 0.06
+    difference becomes legible instead of being squashed into the left fifth
+    of the plot.
+    """
     plot = [r for r in rows if r["task"] != "Baseline"]
     plot.sort(key=lambda r: r["auc"])          # plotly draws y bottom-up
 
     labels = [f"{r['model']}<br><span style='font-size:10px'>{r['task']}</span>"
               for r in plot]
-    colours = [VIOLET if r.get("selected") else rgba(VIOLET, 0.30) for r in plot]
+
+    # colour by MODEL, using the same mapping as the ROC chart below. an
+    # earlier version coloured by selected-or-not, which meant a colour said
+    # "winner" here and "which model" there - two rules on one page. bar
+    # length and the sort order already show which model won, so hue is free
+    # to carry identity instead
+    colours = [model_colour(r["model"], rows) for r in plot]
 
     fig = go.Figure(go.Bar(
-        x=[r["auc"] for r in plot],
+        x=[r["auc"] - CHANCE for r in plot],
+        base=CHANCE,
         y=labels,
         orientation="h",
         marker=dict(color=colours, line=dict(width=0)),
@@ -234,17 +262,16 @@ def build_auc_chart(rows):
     # value labels go in their own right-hand gutter rather than sitting on
     # the end of each bar - plotly draws "outside" text at the bar tip, which
     # lands underneath the error whisker and makes both unreadable
+    x_max = 0.86
     for i, r in enumerate(plot):
         fig.add_annotation(
-            x=1.0, y=labels[i], xanchor="right", yanchor="middle",
+            x=x_max, y=labels[i], xanchor="right", yanchor="middle",
             text=fmt_auc(r), showarrow=False,
-            font=dict(size=11, color=VIOLET if r.get("selected") else TEXT_DIM,
-                      family=MONO),
+            font=dict(size=11, color=model_colour(r["model"], rows), family=MONO),
         )
 
-    # the chance line. drawn on top of the bars deliberately - the point is
-    # that the bars have to clear it
-    fig.add_vline(x=CHANCE, line=dict(color=ROSE, width=1.5, dash="dash"))
+    # chance sits on the axis origin now, so it is marked rather than drawn
+    # across the plot
     fig.add_annotation(
         x=CHANCE, y=1.04, yref="paper", xanchor="left", yanchor="bottom",
         text="0.5 — chance", showarrow=False,
@@ -252,13 +279,144 @@ def build_auc_chart(rows):
     )
 
     fig = base_layout(fig, height=58 * len(plot) + 70)
-    # axis runs the full 0-1 range on purpose. 1.0 is perfect separation and
-    # 0.5 is chance, so the honest reading is how far along that span each
-    # bar gets - a truncated axis would make the gaps look larger than they are
-    fig.update_xaxes(range=[0, 1.0], title=None, dtick=0.1)
+    fig.update_xaxes(range=[CHANCE, x_max], title=None, dtick=0.05,
+                     linecolor=ROSE)
     fig.update_yaxes(title=None, gridcolor="rgba(0,0,0,0)")
     fig.update_layout(margin=dict(l=6, r=14, t=26, b=24))
     return fig
+
+
+# ------------------------------------------------------- ROC curves
+
+# MODEL colours, kept deliberately clear of the METRIC colours used on the
+# threshold chart below (emerald = recall, amber = precision, violet = F1).
+# violet appears in both, but only ever as "the selected thing" - the winning
+# model here, the headline metric there. amber and emerald never label a model,
+# so a colour never means two different measurements on the same page.
+# grey for the last entry is deliberate: it is the baseline, not a candidate.
+ROC_COLOURS = [VIOLET, CYAN, TEXT_DIM, TEXT_FAINT]
+
+
+def model_rank_order(rows):
+    """model names ordered best-AUC-first on the seller task.
+
+    Ranked on the seller models because that is the primary task and the one
+    the ROC chart plots. The customer models reuse whatever colour their name
+    already has, so XGBoost is the same colour in both halves of the table.
+    """
+    seller = [r for r in rows if r["task"] == "Seller decline"]
+    if not seller:
+        seller = [r for r in rows if r["task"] != "Baseline"]
+    return [r["model"] for r in sorted(seller, key=lambda r: -r["auc"])]
+
+
+def model_colour(name, rows):
+    """one colour per model name, shared by every chart on this page."""
+    order = model_rank_order(rows)
+    if name in order:
+        return ROC_COLOURS[order.index(name) % len(ROC_COLOURS)]
+    return TEXT_DIM
+
+
+def build_roc_chart(roc, order):
+    """all three seller models on one set of axes.
+
+    This is the comparison the AUC bar chart summarises - each bar there is
+    the area under one of these curves. Showing both means a reader can see
+    not just that one model scores higher, but where along the curve it wins.
+    """
+    fig = go.Figure()
+
+    # chance line first, so the curves draw over it
+    fig.add_trace(go.Scatter(
+        x=[0, 1], y=[0, 1], mode="lines", name="Chance",
+        line=dict(color=ROSE, width=1.5, dash="dash"),
+        hoverinfo="skip",
+    ))
+
+    for i, name in enumerate(order):
+        d = roc[roc["model"] == name]
+        if d.empty:
+            continue
+        auc = float(d["auc"].iloc[0])
+        fig.add_trace(go.Scatter(
+            x=d["fpr"], y=d["tpr"], mode="lines",
+            name=f"{name} ({auc:.3f})",
+            line=dict(color=ROC_COLOURS[i % len(ROC_COLOURS)],
+                      width=2.5 if i == 0 else 1.8),
+            hovertemplate=(f"<b>{name}</b><br>false positive %{{x:.3f}}"
+                           "<br>true positive %{y:.3f}<extra></extra>"),
+        ))
+
+    fig = base_layout(fig, height=470)
+    # legend along the top, same as the threshold chart. a ROC plot is forced
+    # square by scaleanchor below, which leaves empty card either side of it -
+    # an inside-the-plot legend ends up stranded in that gap instead of next
+    # to the lines it labels
+    fig.update_layout(
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="left", x=0,
+                    font=dict(size=11, color=TEXT_DIM)),
+        margin=dict(l=6, r=10, t=34, b=40),
+    )
+    # square axes - a ROC plot is only readable if both axes share a scale
+    fig.update_xaxes(range=[0, 1], dtick=0.2, constrain="domain",
+                     title=dict(text="False positive rate",
+                                font=dict(size=10.5, color=TEXT_FAINT)))
+    fig.update_yaxes(range=[0, 1], dtick=0.2, scaleanchor="x", scaleratio=1,
+                     title=dict(text="True positive rate",
+                                font=dict(size=10.5, color=TEXT_FAINT)))
+    return fig
+
+
+# ------------------------------------------------- per-model curves
+
+def model_curves():
+    """threshold curves for every model, ordered best AUC first.
+
+    Falls back to the single-model file when the by-model one has not been
+    generated yet, so the page still works on a checkout where seller_model.py
+    has not been re-run. In that case the selector is hidden rather than
+    offering a choice it cannot honour.
+    """
+    order, aucs = [], {}
+    try:
+        cv = load_seller_cv_results()
+        auc_col = first_col(cv, "mean_auc", "auc")
+        pairs = sorted(zip(cv["model"], auc_col), key=lambda kv: -kv[1])
+        order = [str(m) for m, _ in pairs]
+        aucs = {str(m): float(a) for m, a in pairs}
+    except Exception:
+        pass
+
+    try:
+        by_model = load_threshold_curve_by_model()
+        present = [m for m in order if m in set(by_model["model"])]
+        if not present:
+            present = sorted(by_model["model"].unique())
+        return {m: by_model[by_model["model"] == m].reset_index(drop=True)
+                for m in present}, present, aucs, True
+    except Exception:
+        pass
+
+    # single-model fallback
+    try:
+        one = load_threshold_curve()
+    except Exception:
+        return {}, [], aucs, False
+    name = order[0] if order else "Selected model"
+    return {name: one}, [name], aucs, False
+
+
+def capacity_for(model_name):
+    """precision@N rows for one model, or None if the file isn't there."""
+    try:
+        cap = load_capacity_curve_by_model()
+        rows = cap[cap["model"] == model_name]
+        return rows.reset_index(drop=True) if len(rows) else None
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------- threshold curve
@@ -286,21 +444,9 @@ def build_threshold_chart(curve, t):
             hovertemplate=label + " %{y:.3f} at %{x:.2f}<extra></extra>",
         ))
 
-    # Add F1 peak reference marker to show the standard mathematical baseline
-    if "f1" in curve.columns and not curve["f1"].empty:
-        f1_max_idx = curve["f1"].idxmax()
-        f1_max_t = float(curve.loc[f1_max_idx, "threshold"])
-        fig.add_vline(x=f1_max_t, line=dict(color=rgba(VIOLET, 0.35), width=1, dash="dash"))
-        fig.add_annotation(
-            x=f1_max_t, y=0.98, yref="paper", xanchor="center", yanchor="top",
-            text=f"F1 Max ({f1_max_t:.2f})", showarrow=False,
-            font=dict(color=TEXT_FAINT, size=9.5, family=MONO),
-        )
-
-    # Add selected threshold line
     row, _ = threshold_row(curve, t)
     fig.add_vline(x=float(row["threshold"]),
-                  line=dict(color=TEXT, width=1.5, dash="dot"))
+                  line=dict(color=TEXT_DIM, width=1, dash="dot"))
 
     fig = base_layout(fig, height=280)
     fig.update_layout(
@@ -309,10 +455,8 @@ def build_threshold_chart(curve, t):
                     xanchor="left", x=0, font=dict(size=11, color=TEXT_DIM)),
         margin=dict(l=6, r=10, t=34, b=34),
     )
-    fig.update_xaxes(
-    range=[0.10, 0.90], dtick=0.10,
-    title=dict(text="decision threshold", font=dict(size=10.5, color=TEXT_FAINT))
-)
+    fig.update_xaxes(title=dict(text="decision threshold",
+                                font=dict(size=10.5, color=TEXT_FAINT)))
     fig.update_yaxes(range=[0, 1.02], dtick=0.2, title=None)
     return fig
 
@@ -342,6 +486,66 @@ def build_threshold_stats(curve, t):
             f"showing the nearest evaluated point.",
             className="chart-note", style={"marginTop": "0"}))
     return html.Div(out)
+
+
+def build_model_comparison_strip(curves, order, selected, t):
+    """every model's F1 at the threshold currently set.
+
+    This is the point of the selector. The AUC table above ranks the models
+    once, averaged over all thresholds. This shows the ranking holding at the
+    specific cut-off on screen - drag the slider and the order does not
+    change, which is a stronger claim than a single averaged figure.
+    """
+    if len(order) < 2:
+        return html.Div()
+
+    cells = []
+    for name in order:
+        row, _ = threshold_row(curves[name], t)
+        is_sel = name == selected
+        cells.append(html.Div([
+            html.Span(name, className="model-stat-label"),
+            html.Span(f"{float(row['f1']):.3f}",
+                      className="model-stat-value",
+                      style={"color": VIOLET if is_sel else TEXT_DIM}),
+        ], className="model-stat"))
+
+    return html.Div([
+        html.P("F1 at this threshold, all models",
+               style={"fontSize": "11px", "color": TEXT_FAINT,
+                      "textTransform": "uppercase", "letterSpacing": "0.07em",
+                      "margin": "0 0 8px"}),
+        html.Div(cells, className="model-strip", style={"width": "100%"}),
+    ], style={"marginTop": "18px"})
+
+
+def build_capacity_strip(model_name):
+    """precision@N for the selected model, if the by-model file exists."""
+    cap = capacity_for(model_name)
+    if cap is None or cap.empty:
+        return html.Div()
+
+    base = float(cap["base_rate"].iloc[0]) if "base_rate" in cap.columns else None
+
+    cells = []
+    if base is not None:
+        cells.append(stat_cell("Base rate", f"{base:.1%}", TEXT_DIM))
+    for _, r in cap.iterrows():
+        cells.append(stat_cell(
+            f"Top {int(r['capacity'])}",
+            f"{float(r['precision_at_n']):.1%}",
+            EMERALD if base and r["precision_at_n"] > base else TEXT))
+
+    return html.Div([
+        html.P("Precision at worklist size",
+               style={"fontSize": "11px", "color": TEXT_FAINT,
+                      "textTransform": "uppercase", "letterSpacing": "0.07em",
+                      "margin": "0 0 8px"}),
+        html.Div(cells, className="model-strip", style={"width": "100%"}),
+        html.P("How many of the top N really decline. Independent of the "
+               "threshold above — the worklist is a ranking, not a cut-off.",
+               className="chart-note", style={"marginTop": "10px"}),
+    ], style={"marginTop": "18px"})
 
 
 # ------------------------------------------------------------ layout
@@ -391,36 +595,94 @@ def layout(**kwargs):
 
         blocks.append(html.Div([
             html.P("AUC against chance", className="card-title"),
-            html.P("Bars are mean AUC; whiskers on the seller models are the "
+            html.P("Bars are measured from 0.5, so length is how far each model "
+                   "clears chance. Whiskers on the seller models are the "
                    "standard deviation across the 11 folds.",
                    className="card-sub"),
             dcc.Graph(figure=build_auc_chart(rows),
                       config={"displayModeBar": False}),
-            html.P("A majority-class classifier sits exactly on the dashed "
-                   "line at 0.5 — it never separates the two groups, whatever "
-                   "its accuracy looks like. Distance to the right of that "
-                   "line is the only part of a bar that means anything.",
+            html.P("The axis starts at 0.5 because that is where a "
+                   "majority-class classifier sits — it never separates the "
+                   "two groups, whatever its accuracy looks like. Nothing "
+                   "below 0.5 is reachable by a model that ranks at all, so "
+                   "the distance above it is the only part worth comparing, "
+                   "and that is what these bars measure.",
                    className="chart-note"),
         ], className="card"))
 
-    if curve is not None:
+    curves, order, aucs, has_by_model = model_curves()
+
+    # ROC comparison - the curves the AUC bars above are the area under
+    try:
+        roc = load_roc_by_model()
+    except Exception:
+        roc = None
+
+    if roc is not None and not roc.empty:
+        roc_order = [m for m in order if m in set(roc["model"])] or \
+                    sorted(roc["model"].unique())
+        blocks.append(html.Div([
+            html.P("ROC curves", className="card-title"),
+            html.P("All three seller models on one set of axes, from the same "
+                   "out-of-fold predictions", className="card-sub"),
+            dcc.Graph(figure=build_roc_chart(roc, roc_order),
+                      config={"displayModeBar": False}),
+            html.P("The dashed diagonal is chance. A curve that bows further "
+                   "toward the top-left corner separates declining from stable "
+                   "sellers better, and the AUC in the legend is the area under "
+                   "that curve — the same figure as the bars above. Random "
+                   "Forest leads across most of the range rather than only on "
+                   "average.", className="chart-note"),
+        ], className="card"))
+
+    if curves:
+        default_model = order[0]
+
+        # the dropdown is ALWAYS rendered, and hidden with css when there is
+        # only one model to choose from. dash will not fire a callback whose
+        # inputs are missing from the page, so a selector that only exists
+        # sometimes would break the threshold card on the fallback path
+        show_selector = has_by_model and len(order) > 1
+        selector = html.Div([
+            html.Span("Model", style={
+                "fontSize": "11px", "color": TEXT_FAINT,
+                "textTransform": "uppercase", "letterSpacing": "0.07em",
+                "whiteSpace": "nowrap"}),
+            html.Div(
+                dcc.Dropdown(
+                    id="me-model",
+                    options=[{"label": f"{m}  ·  AUC {aucs.get(m, float('nan')):.3f}"
+                                       + ("  ·  selected" if i == 0 else ""),
+                              "value": m} for i, m in enumerate(order)],
+                    value=default_model, clearable=False,
+                    className="dash-dropdown"),
+                style={"minWidth": "340px", "position": "relative",
+                       "zIndex": 100},
+            ),
+        ], style={"display": "flex", "alignItems": "center", "gap": "12px",
+                  "marginBottom": "18px"} if show_selector else {"display": "none"})
+
         blocks.append(html.Div([
             html.P("Decision threshold", className="card-title"),
-html.P("Random Forest on seller decline — the selected model above. "
-                   "Dragging does not change the model, only where the line "
-                   "between 'flag' and 'ignore' is drawn.",
+            html.P("Pick a model, then drag the threshold. Changing the model "
+                   "changes whose curve you are looking at; dragging changes "
+                   "only where the line between 'flag' and 'ignore' is drawn.",
                    className="card-sub"),
+
+            selector,
 
             dcc.Slider(
                 id="me-threshold",
                 min=0.10, max=0.90, step=0.01, value=DEFAULT_THRESHOLD,
                 marks={v: {"label": f"{v:.2f}"}
                        for v in (0.10, 0.30, 0.50, 0.70, 0.90)},
-                tooltip={"placement": "bottom", "always_visible": False},
+                tooltip={"placement": "bottom", "always_visible": True},
             ),
 
             html.Div(id="me-threshold-stats", style={"marginTop": "22px"}),
             dcc.Graph(id="me-threshold-chart", config={"displayModeBar": False}),
+            html.Div(id="me-model-compare"),
+            html.Div(id="me-capacity"),
 
             html.Div([
                 html.P("Why recall is prioritised over precision",
@@ -449,17 +711,31 @@ html.P("Random Forest on seller decline — the selected model above. "
             }),
         ], className="card"))
 
-    blocks.append(build_review_explorer())
-    
     return html.Div(blocks)
 
 
 @callback(
     Output("me-threshold-stats", "children"),
     Output("me-threshold-chart", "figure"),
+    Output("me-model-compare", "children"),
+    Output("me-capacity", "children"),
     Input("me-threshold", "value"),
+    Input("me-model", "value"),
 )
-def update_threshold(t):
-    curve = load_threshold_curve()
+def update_threshold(t, model_name):
+    curves, order, _, _ = model_curves()
+    if not curves:
+        raise dash.exceptions.PreventUpdate
+
+    if model_name not in curves:
+        model_name = order[0]
+    curve = curves[model_name]
+
     t = DEFAULT_THRESHOLD if t is None else float(t)
-    return build_threshold_stats(curve, t), build_threshold_chart(curve, t)
+
+    return (
+        build_threshold_stats(curve, t),
+        build_threshold_chart(curve, t),
+        build_model_comparison_strip(curves, order, model_name, t),
+        build_capacity_strip(model_name),
+    )

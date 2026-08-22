@@ -27,7 +27,7 @@ LINE_SOFT = "#1b1e29"
 
 TEXT      = "#eef0f6"
 TEXT_DIM  = "#8b91a5"
-TEXT_FAINT= "#5a5f72"
+TEXT_FAINT = "#7f8698"
 
 VIOLET    = "#7c5cff"
 CYAN      = "#22d3ee"
@@ -463,7 +463,9 @@ h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 7p
     font-size: 11.5px;
 }}
 
-.dash-slider-track {{ background-color: {LINE} !important; }}
+/* deliberately lighter than LINE. the track is the only thing showing where a
+   slider can go when it has no marks, and at LINE it disappears into the card */
+.dash-slider-track {{ background-color: #2c3142 !important; }}
 .dash-slider-range {{ background-color: {VIOLET} !important; }}
 
 .dash-slider-thumb {{

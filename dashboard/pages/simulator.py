@@ -281,9 +281,20 @@ def layout():
                         style={**BTN, "textAlign": "left", "padding": "10px 14px"})
                     for bid, p in PRESETS.items()
                 ] + [
-                    html.Button("Reset to actual", id="sim-reset", n_clicks=0,
-                                style={**BTN, "color": VIOLET}),
-                ], style={"display": "flex", "flexWrap": "wrap"}),
+                    # same two-line shape and padding as the preset buttons.
+                    # a single-line button in this row stretches to their
+                    # height and floats its label in the middle, which reads
+                    # as a misalignment rather than a different kind of control
+                    html.Button([
+                        html.Div("Reset to actual",
+                                 style={"color": VIOLET, "fontSize": "12.5px"}),
+                        html.Div("back to this seller's real numbers",
+                                 style={"color": TEXT_FAINT, "fontSize": "11px",
+                                        "marginTop": "3px"}),
+                    ], id="sim-reset", n_clicks=0,
+                        style={**BTN, "textAlign": "left", "padding": "10px 14px"}),
+                ], style={"display": "flex", "flexWrap": "wrap",
+                          "alignItems": "stretch"}),
 
                 html.Div(style={"height": "1px", "background": LINE_SOFT,
                                 "margin": "18px 0"}),

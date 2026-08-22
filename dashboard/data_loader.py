@@ -114,6 +114,20 @@ def load_capacity_curve():
     """precision@N for a few worklist sizes"""
     return pd.read_csv(REPORTS_DIR / "capacity_curve.csv")
 
+def load_roc_by_model():
+    """fpr/tpr per model for the overlaid ROC chart - model_curves.py"""
+    return pd.read_csv(REPORTS_DIR / "roc_curve_by_model.csv")
+
+
+def load_threshold_curve_by_model():
+    """threshold sweep for every model, one stacked frame - model_curves.py"""
+    return pd.read_csv(REPORTS_DIR / "threshold_curve_by_model.csv")
+
+
+def load_capacity_curve_by_model():
+    """precision@N for every model, one stacked frame - model_curves.py"""
+    return pd.read_csv(REPORTS_DIR / "capacity_curve_by_model.csv")
+
 
 # ------------------------------------------------------- sentiment and nlp
 
