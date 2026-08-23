@@ -371,9 +371,7 @@ def main():
     scored["month"] = scored["month"].astype(str)
     scored.to_csv(PROCESSED_DIR / "seller_risk_table.csv", index=False)
 
-    # keep the old filename around too so the dashboard page still finds it
-    cv.rename(columns={"mean_auc": "auc"}).assign(f1=np.nan).to_csv(
-        REPORTS_DIR / "seller_model_comparison.csv", index=False)
+
 
     print(f"\nsaved model, threshold ({threshold}), and {len(scored)} scored sellers")
 
