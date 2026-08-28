@@ -352,7 +352,8 @@ def layout():
         ], className="page-head"),
 
         html.Div([
-            html.P("Feature importance", className="card-title"),
+            html.P("Indicators associated with decline risk",
+                   className="card-title"),
             html.P("Mean absolute SHAP value - how far each feature moves a "
                    "prediction on average", className="card-sub"),
 

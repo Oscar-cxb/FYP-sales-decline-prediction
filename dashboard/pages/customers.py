@@ -80,7 +80,7 @@ def build_table(df, sort_by):
         ("avg_delivery_delay", "Delivery (d)"),
         ("dominant_category", "Top category"),
         ("dominant_payment_type", "Payment"),
-        ("risk_score", "Risk"),
+        ("risk_score", "Predicted risk"),
     ]
     numeric = ["monetary", "frequency", "recency", "avg_delivery_delay", "risk_score"]
 

@@ -156,3 +156,11 @@ def load_review_examples():
     """individual reviews with both sentiment scores attached, for the raw
     review card - src/review_examples.py"""
     return pd.read_csv(REPORTS_DIR / "review_examples.csv")
+
+def load_segment_association():
+    """per-segment feature-block shares and AUC - segment_association.py.
+
+    objective 3's evidence: how much of the model's decision comes from each
+    behavioural block inside each RFM segment, measured on the held-out split
+    """
+    return pd.read_csv(REPORTS_DIR / "segment_association.csv")

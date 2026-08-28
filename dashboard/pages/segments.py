@@ -31,7 +31,10 @@ import plotly.graph_objects as go
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from data_loader import load_risk_table
+from data_loader import load_risk_table, load_segment_association
+# objective 3's colours, kept with the code that uses them. a second import
+# from theme is harmless - it rebinds the same names to the same values
+from theme import VIOLET, CYAN, AMBER, TEXT_DIM, LINE, MONO
 from theme import (
     VIOLET, CYAN, AMBER, ROSE, EMERALD, TEXT, TEXT_DIM, TEXT_FAINT,
     LINE, LINE_SOFT, CARD, CARD_2, MONO, SANS, rgba,
@@ -267,6 +270,82 @@ def build_table(stats):
         ],
     )
 
+# ---------------------------------------------------- objective 3
+
+# the segment one-hot columns are deliberately left out and the remaining
+# four renormalised. inside a single segment those columns are constant, so
+# they shift the prediction level without separating one customer in that
+# segment from another - leaving them in would dilute the four blocks that do
+ASSOC_BLOCKS = [
+    ("rfm_share",      "RFM",      CYAN),
+    ("delivery_share", "Delivery", AMBER),
+    ("payment_share",  "Payment",  VIOLET),
+    ("category_share", "Category", TEXT_DIM),
+]
+
+
+def build_association_chart(assoc):
+    d = assoc.sort_values("rfm_share").reset_index(drop=True)
+    cols = [c for c, _, _ in ASSOC_BLOCKS]
+    total = d[cols].sum(axis=1).replace(0, np.nan)
+
+    labels = [f"{r.segment}    {r.dissatisfaction_rate:.0%} dissatisfied"
+              for r in d.itertuples()]
+
+    fig = go.Figure()
+    for col, name, colour in ASSOC_BLOCKS:
+        fig.add_bar(
+            x=(d[col] / total).fillna(0), y=labels, name=name,
+            orientation="h",
+            marker=dict(color=colour, line=dict(width=0)),
+            hovertemplate="%{y}<br>" + name + " %{x:.1%}<extra></extra>",
+        )
+
+    fig.update_layout(
+        barmode="stack", paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color=TEXT_DIM, size=11.5),
+        margin=dict(l=0, r=12, t=34, b=0),
+        height=max(260, 44 * len(d) + 70),
+        legend=dict(orientation="h", traceorder="normal", yanchor="bottom",
+                    y=1.02, xanchor="left", x=0, font=dict(size=11)),
+        bargap=0.42,
+    )
+    fig.update_xaxes(range=[0, 1], tickformat=".0%", showgrid=False,
+                     zeroline=False, linecolor=LINE)
+    fig.update_yaxes(showgrid=False, zeroline=False, linecolor=LINE,
+                     tickfont=dict(family=MONO, size=11))
+    return fig
+
+
+def build_association_card():
+    """empty div rather than an exception if the csv isnt there yet, so the
+    page still renders between pulling this code and running the script"""
+    try:
+        assoc = load_segment_association()
+    except Exception:
+        return html.Div()
+
+    return html.Div([
+        html.P("What drives risk in each segment", className="card-title"),
+        html.P("Share of the model's decision coming from each feature block, "
+               "measured on held-out customers only", className="card-sub"),
+        dcc.Graph(figure=build_association_chart(assoc),
+                  config={"displayModeBar": False}),
+        html.P("RFM behaviour carries roughly three and a half times more of "
+               "the decision for Champions than for any other segment. That "
+               "follows from the one-shot marketplace: most customers buy "
+               "once, so recency, frequency and spend barely vary and cannot "
+               "say much about them. Champions are the only group with enough "
+               "purchase history for RFM to mean anything, and for everyone "
+               "else the model falls back on what was bought and how it was "
+               "paid for. Delayed Delivery is a different failure altogether "
+               "— 53% dissatisfied against 10-13% elsewhere, with the largest "
+               "delivery share of any segment. The association between "
+               "purchasing pattern and satisfaction is not constant across "
+               "the customer base, and that is the point.",
+               className="chart-note"),
+    ], className="card")
 
 # ------------------------------------------------------------- layout
 
@@ -392,6 +471,7 @@ def layout():
                    "than a fault in the clustering.",
                    className="chart-note"),
         ], className="card"),
+        build_association_card(),
     ])
 
 

@@ -466,6 +466,27 @@ h1 {{ font-size: 22px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 7p
 /* deliberately lighter than LINE. the track is the only thing showing where a
    slider can go when it has no marks, and at LINE it disappears into the card */
 .dash-slider-track {{ background-color: #2c3142 !important; }}
+/* dash's pager is styled for a light background - on a dark card the
+   controls come out almost invisible without this */
+.dash-table-container .previous-next-container {{
+    padding-top: 12px;
+}}
+.dash-table-container .previous-next-container button {{
+    color: {TEXT_DIM} !important;
+    background: transparent !important;
+    border: none !important;
+    font-size: 13px;
+}}
+.dash-table-container .previous-next-container button:hover {{
+    color: {VIOLET} !important;
+}}
+.dash-table-container .previous-next-container .page-number,
+.dash-table-container .previous-next-container input {{
+    color: {TEXT_DIM} !important;
+    background: transparent !important;
+    border: none !important;
+    font-size: 11.5px;
+}}
 .dash-slider-range {{ background-color: {VIOLET} !important; }}
 
 .dash-slider-thumb {{

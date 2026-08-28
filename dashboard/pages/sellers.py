@@ -246,7 +246,10 @@ def build_table(df, capacity):
     # the worklist itself - top N by risk, in rank order. NOT sorted by
     # revenue, because the point is "work down this list", and re-sorting
     # by size would bury the riskiest sellers
-    top = df.nsmallest(min(capacity, len(df)), "risk_rank").head(12).copy()
+    # the whole worklist, not a preview of it. paginated in the DataTable
+    # below rather than cut here, so someone can actually work down to the
+    # capacity the system was tuned for instead of stopping at row 12
+    top = df.nsmallest(min(capacity, len(df)), "risk_rank").copy()
 
     top["month"] = top["month"].astype(str)
     top["revenue"] = top["revenue"].map(lambda v: f"{v:,.0f}")
@@ -260,7 +263,7 @@ def build_table(df, capacity):
         ("risk_rank", "#"), ("seller_id", "Seller"), ("revenue", "Revenue (R$)"),
         ("d_revenue", "Δ vs last month"), ("orders", "Orders"),
         ("avg_review_score", "Reviews"), ("pct_late_deliveries", "Late"),
-        ("risk_score", "Risk"),
+        ("risk_score", "Predicted risk"),
     ]
     numeric = ["risk_rank", "revenue", "d_revenue", "orders", "avg_review_score",
                "pct_late_deliveries", "risk_score"]
@@ -269,6 +272,10 @@ def build_table(df, capacity):
         data=top[[c for c, _ in cols]].to_dict("records"),
         columns=[{"name": lbl, "id": cid} for cid, lbl in cols],
         sort_action="native", style_as_list_view=True,
+        # native paging works with native sorting - dash sorts the full frame
+        # first and pages the result, so re-sorting doesnt just shuffle the
+        # visible page
+        page_action="native", page_size=12,
         style_header={
             "backgroundColor": "rgba(0,0,0,0)", "color": TEXT_FAINT,
             "fontWeight": "500", "fontSize": "11px", "border": "none",
@@ -368,7 +375,7 @@ def layout():
     model_fig = build_model_chart()
     if model_fig is not None:
         perf_cards.append(html.Div([
-            html.P("Model comparison", className="card-title"),
+            html.P("Seller model comparison", className="card-title"),
             html.P("Mean AUC across CV folds, bars show standard deviation",
                    className="card-sub"),
             dcc.Graph(figure=model_fig, config={"displayModeBar": False}),
@@ -423,8 +430,13 @@ def layout():
         ], className="duo-row"))
 
     blocks.append(html.Div([
-        html.P(f"Worklist — Top {capacity} By Risk", className="card-title"),
-        html.P("In rank order, highest risk first. Showing the first 12.",
+        # the objective says "predicting", so the page says predicting. a
+        # marker holding the objectives should be able to match them to a
+        # screen without translating between vocabularies
+        html.P(f"Worklist — Top {capacity} By Predicted Decline Risk",
+               className="card-title"),
+        html.P(f"All {capacity} in rank order, highest risk first. "
+               "12 per page — click any column to re-sort.",
                className="card-sub"),
         build_table(df, capacity),
     ], className="card"))

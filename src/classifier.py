@@ -157,9 +157,22 @@ def evaluate(model, X_test, y_test, name):
 
     print(f"\n--- {name} ---")
     print(classification_report(y_test, preds))
-    print(f"F1: {f1:.4f}  AUC-ROC: {auc:.4f}")
+    # objective 2 is stated in accuracy, so accuracy gets measured and saved
+    # rather than left inside the printed classification report where nothing
+    # downstream can read it. the majority baseline is saved alongside it
+    # because at a 14.9% positive rate an accuracy figure means nothing on its
+    # own - predicting the majority class for every customer already scores
+    # about 85%, so the baseline is what makes 88% interpretable
+    y_true = np.asarray(y_test)
+    acc = float(np.mean(np.asarray(preds) == y_true))
+    base_rate = float(np.mean(y_true))
+    majority = max(base_rate, 1.0 - base_rate)
 
-    return {"model": name, "f1": f1, "auc": auc}
+    print(f"F1: {f1:.4f}  AUC-ROC: {auc:.4f}  Accuracy: {acc:.4f}  "
+          f"(majority baseline {majority:.4f})")
+
+    return {"model": name, "f1": f1, "auc": auc, "accuracy": acc,
+            "majority_baseline": majority, "base_rate": base_rate}
 
 
 def run_shap_explainability(model, X_train, X_test):

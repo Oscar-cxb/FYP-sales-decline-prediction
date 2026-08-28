@@ -98,6 +98,10 @@ def collect_rows():
         comp = load_model_comparison()
         auc = first_col(comp, "auc", "mean_auc")
         f1 = first_col(comp, "f1")
+        # objective 2 is stated in accuracy, so accuracy has to appear on the
+        # page. tolerated as optional so the page still renders against an
+        # older model_comparison.csv that predates the column
+        acc = first_col(comp, "accuracy", "acc")
         for i, name in enumerate(comp["model"]):
             rows.append({
                 "model": str(name),
@@ -106,6 +110,7 @@ def collect_rows():
                 "auc": float(auc.iloc[i]),
                 "std": None,
                 "f1": None if f1 is None or pd.isna(f1.iloc[i]) else float(f1.iloc[i]),
+                "acc": None if acc is None or pd.isna(acc.iloc[i]) else float(acc.iloc[i]),
             })
     except Exception:
         missing.append("reports/model_comparison.csv")
@@ -167,15 +172,16 @@ def build_table(rows):
         "validation": r["validation"],
         "auc": fmt_auc(r),
         "f1": "—" if r["f1"] is None else f"{r['f1']:.3f}",
+        "acc": "—" if r.get("acc") is None else f"{r['acc']:.1%}",
         "lift": "—" if r["task"] == "Baseline" else f"+{r['auc'] - CHANCE:.3f}",
         "verdict": "Selected" if r.get("selected") else
                    ("Chance" if r["task"] == "Baseline" else ""),
     } for r in rows]
 
     cols = [("model", "Model"), ("task", "Task"), ("validation", "Validation"),
-            ("auc", "AUC-ROC"), ("f1", "F1 (positive)"),
+            ("auc", "AUC-ROC"), ("acc", "Accuracy"), ("f1", "F1 (positive)"),
             ("lift", "vs chance"), ("verdict", "")]
-    numeric = ["auc", "f1", "lift"]
+    numeric = ["auc", "acc", "f1", "lift"]
 
     return dash_table.DataTable(
         data=data,
@@ -192,13 +198,14 @@ def build_table(rows):
         # and opens a wide gap between the text columns and the numbers, which
         # makes a row hard to read across
         style_cell_conditional=[
-            {"if": {"column_id": "model"}, "width": "17%"},
-            {"if": {"column_id": "task"}, "width": "20%"},
-            {"if": {"column_id": "validation"}, "width": "22%"},
-            {"if": {"column_id": "auc"}, "width": "15%", "textAlign": "right"},
+            {"if": {"column_id": "model"}, "width": "15%"},
+            {"if": {"column_id": "task"}, "width": "18%"},
+            {"if": {"column_id": "validation"}, "width": "19%"},
+            {"if": {"column_id": "auc"}, "width": "14%", "textAlign": "right"},
+            {"if": {"column_id": "acc"}, "width": "12%", "textAlign": "right"},
             {"if": {"column_id": "f1"}, "width": "11%", "textAlign": "right"},
-            {"if": {"column_id": "lift"}, "width": "9%", "textAlign": "right"},
-            {"if": {"column_id": "verdict"}, "width": "6%"},
+            {"if": {"column_id": "lift"}, "width": "6%", "textAlign": "right"},
+            {"if": {"column_id": "verdict"}, "width": "5%"},
         ],
         style_data_conditional=[
             {"if": {"column_id": numeric}, "fontFamily": MONO, "fontSize": "12px"},
@@ -583,7 +590,8 @@ def layout(**kwargs):
 
     if rows:
         blocks.append(html.Div([
-            html.P("Model comparison", className="card-title"),
+            html.P("Model development and optimisation",
+                   className="card-title"),
             html.P("Two separate prediction tasks. Within each, the model with "
                    "the higher AUC is the one the dashboard actually uses.",
                    className="card-sub"),
@@ -592,6 +600,19 @@ def layout(**kwargs):
                    "model is used as a ranked worklist rather than a hard "
                    "flag, so a single F1 at one threshold would not describe "
                    "how it is read.", className="chart-note"),
+            # accuracy is shown because it is the metric a reader reaches for
+            # first, and the baseline is shown with it because on a 14.9%
+            # positive rate accuracy alone says almost nothing - predicting
+            # the majority class for everyone already scores 85.1%
+            html.P("The customer model reaches 87.5% accuracy against a "
+                   "majority-class baseline of 85.1%. In error terms it gets "
+                   "12.5% of customers wrong where the baseline gets 14.9% "
+                   "wrong, a 16% relative reduction. The stronger evidence of "
+                   "discrimination is AUC 0.733 against 0.5 chance, and 68% "
+                   "precision on the at-risk class against a 14.9% base rate "
+                   "— 4.6× better than picking customers at random. Recall is "
+                   "30%, which is why the seller model exists alongside it.",
+                   className="chart-note"),
         ], className="card"))
 
         blocks.append(html.Div([
