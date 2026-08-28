@@ -41,6 +41,7 @@ from theme import (
     VIOLET, CYAN, AMBER, ROSE, EMERALD,
     TEXT, TEXT_DIM, TEXT_FAINT, LINE, LINE_SOFT, CARD, CARD_2, MONO, SANS, rgba,
 )
+from review_explorer import build_review_explorer
 
 dash.register_page(__name__, path="/model-evidence", name="Model Evidence")
 
@@ -710,6 +711,15 @@ def layout(**kwargs):
                 "borderLeft": f"2px solid {VIOLET}",
             }),
         ], className="card"))
+
+    # the review table is evidence for the lexicon in the same way the AUC
+    # chart is evidence for the ranker, so it belongs on this page. wrapped
+    # because it reads review_examples.csv, and a missing file should cost
+    # one card rather than the whole page
+    try:
+        blocks.append(build_review_explorer())
+    except Exception:
+        pass
 
     return html.Div(blocks)
 
